@@ -75,8 +75,11 @@ final class SubmissionHooks implements MailHook, RcptHook, DisconnectHandler<SMT
   private final IdentityService identity;
   private final SendRate rate;
   private final int maxRecipients;
+  private final boolean relay;
 
-  SubmissionHooks(IdentityService identity, SendRate rate, int maxRecipients) {
+  /** {@code relay}: remote recipients go to the outbound queue; otherwise they are refused. */
+  SubmissionHooks(IdentityService identity, SendRate rate, int maxRecipients, boolean relay) {
+    this.relay = relay;
     this.identity = identity;
     this.rate = rate;
     this.maxRecipients = maxRecipients;
@@ -129,10 +132,20 @@ final class SubmissionHooks implements MailHook, RcptHook, DisconnectHandler<SMT
     } catch (IllegalArgumentException e) {
       return BAD_ADDRESS;
     }
-    if (!identity.isLocalDomain(address.domain())) {
-      return REMOTE;
-    }
     Transactions.Recipients recipients = Transactions.recipients(session);
+    if (!identity.isLocalDomain(address.domain())) {
+      if (!relay) {
+        return REMOTE;
+      }
+      if (recipients.count() >= maxRecipients) {
+        return TOO_MANY;
+      }
+      if (!rate.take(lease.mailboxId())) {
+        return RATE;
+      }
+      recipients.addRemote(address.toString());
+      return ACCEPTED;
+    }
     if (recipients.count() >= maxRecipients) {
       return TOO_MANY;
     }

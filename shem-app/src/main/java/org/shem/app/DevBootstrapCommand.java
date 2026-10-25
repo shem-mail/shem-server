@@ -13,6 +13,7 @@ import org.shem.identity.EmailAddress;
 import org.shem.mailbox.Capability;
 import org.shem.mailbox.MailboxLease;
 import org.shem.mailbox.MailboxProvisioning;
+import org.shem.outbound.DkimSigning;
 
 /**
  * Local-only development bootstrap (PLAN.md, Phase 2): creates domains and accounts and performs
@@ -84,6 +85,28 @@ final class DevBootstrapCommand {
                       .map(a -> a.publicKey().fingerprint())
                       .orElse("unavailable"));
         }
+        case "dkim-key" -> {
+          if (args.size() != 3) {
+            return usage();
+          }
+          String domain = EmailAddress.canonicalDomain(args.get(1));
+          String selector = args.get(2);
+          if (!selector.matches("[a-z0-9][a-z0-9-]{0,62}")) {
+            out.println("selector must be lower-case letters, digits, and hyphens");
+            return 2;
+          }
+          var existing = services.identity.directory().domainByName(domain).orElse(null);
+          if (existing == null) {
+            out.println("unknown domain");
+            return 2;
+          }
+          String record =
+              new DkimSigning(services.data.dkimKeys(), services.identity)
+                  .generate(selector, domain);
+          services.identity.setDkimSelector(existing.domainId(), selector);
+          out.println("publish this TXT record, then mail from " + domain + " is signed:");
+          out.println(selector + "._domainkey." + domain + " IN TXT \"" + record + "\"");
+        }
         default -> {
           return usage();
         }
@@ -113,7 +136,9 @@ final class DevBootstrapCommand {
   }
 
   private int usage() {
-    out.println("usage: shem dev <create-domain DOMAIN | create-account ADDRESS | enroll ADDRESS>");
+    out.println(
+        "usage: shem dev <create-domain DOMAIN | create-account ADDRESS | enroll ADDRESS"
+            + " | dkim-key DOMAIN SELECTOR>");
     return 2;
   }
 

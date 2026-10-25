@@ -17,6 +17,7 @@ final class Transactions {
   /** Accepted recipients of the current transaction, deduplicated by mailbox. */
   static final class Recipients {
     private final Map<OpaqueId, Accepted> byMailbox = new LinkedHashMap<>();
+    private final List<String> remote = new ArrayList<>();
     private int count;
 
     record Accepted(RecipientRoute route, String address) {}
@@ -34,6 +35,18 @@ final class Transactions {
 
     List<Accepted> mailboxes() {
       return new ArrayList<>(byMailbox.values());
+    }
+
+    /** A remote recipient for the outbound queue (submission only). */
+    void addRemote(String address) {
+      count++;
+      if (!remote.contains(address)) {
+        remote.add(address);
+      }
+    }
+
+    List<String> remote() {
+      return List.copyOf(remote);
     }
   }
 

@@ -15,7 +15,7 @@ import org.apache.james.jdkim.api.Headers;
  * requires. At most {@link #MAX_DKIM_SIGNATURES} DKIM-Signature fields are exposed, bounding DNS
  * lookups and verification work per message.
  */
-final class HeaderBlock implements Headers {
+public final class HeaderBlock implements Headers {
   static final int MAX_HEADER_BYTES = 256 * 1024;
   static final int MAX_FIELDS = 1000;
   static final int MAX_DKIM_SIGNATURES = 5;
@@ -32,7 +32,7 @@ final class HeaderBlock implements Headers {
    * Reads the header section. {@link #complete()} is false when the bound was hit or the stream
    * ended inside the headers.
    */
-  static HeaderBlock read(InputStream in) throws IOException {
+  public static HeaderBlock read(InputStream in) throws IOException {
     List<String> fields = new ArrayList<>();
     ByteArrayOutputStream field = new ByteArrayOutputStream();
     ByteArrayOutputStream line = new ByteArrayOutputStream();
@@ -76,7 +76,7 @@ final class HeaderBlock implements Headers {
     }
   }
 
-  boolean complete() {
+  public boolean complete() {
     return complete;
   }
 

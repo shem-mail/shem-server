@@ -101,4 +101,20 @@ class ShemConfigTest {
     assertThatThrownBy(() -> ShemConfig.fromProperties(noTls, BASE))
         .hasMessageContaining("submission requires tls");
   }
+
+  @Test
+  void outboundRequiresSubmissionAndDefaultsAreBounded() {
+    Properties p = withTls();
+    p.setProperty("submission.startTlsBind", "0.0.0.0:587");
+    p.setProperty("outbound.enabled", "true");
+    ShemConfig.Outbound outbound =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).outbound());
+    assertThat(outbound.lifetime()).isEqualTo(java.time.Duration.ofDays(5));
+    assertThat(outbound.maxItems()).isEqualTo(10_000);
+    Properties alone = withTls();
+    alone.setProperty("outbound.enabled", "true");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(alone, BASE))
+        .hasMessageContaining("requires a submission listener");
+    assertThat(ShemConfig.fromProperties(withTls(), BASE).outbound()).isNull();
+  }
 }

@@ -18,8 +18,9 @@ public interface DnsResolver {
   }
 
   /**
-   * Returns the records of {@code type} at {@code name}: addresses as text for A/AAAA, host names
-   * for MX/PTR, and character strings concatenated per record for TXT.
+   * Returns the records of {@code type} at {@code name}: addresses as text for A/AAAA, {@code
+   * "<preference> <host>"} for MX, host names for PTR, and character strings concatenated per
+   * record for TXT. Host names have no trailing dot; the null MX target is {@code "."}.
    */
   List<String> lookup(String name, Type type) throws DnsTemporaryException;
 

@@ -29,6 +29,8 @@ import org.shem.common.IdGenerator;
 import org.shem.delivery.DeliveryService;
 import org.shem.identity.IdentityService;
 import org.shem.mailbox.SessionService;
+import org.shem.outbound.DkimSigning;
+import org.shem.outbound.OutboundQueue;
 import org.shem.tls.ReloadableTlsContext;
 
 /**
@@ -36,6 +38,9 @@ import org.shem.tls.ReloadableTlsContext;
  * required before AUTH. Local recipients only; no plaintext outbound queue exists yet.
  */
 public final class SubmissionRole implements AutoCloseable {
+  /** Remote delivery: the outbound queue and the DKIM signer. */
+  public record Relay(OutboundQueue queue, DkimSigning dkim) {}
+
   private static final String[] PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
 
   private final List<NettyServer> servers;
@@ -56,6 +61,7 @@ public final class SubmissionRole implements AutoCloseable {
       SessionService sessions,
       IdentityService identity,
       DeliveryService delivery,
+      @Nullable Relay relay,
       ReloadableTlsContext tls,
       IdGenerator ids,
       SecureRandom random,
@@ -76,6 +82,7 @@ public final class SubmissionRole implements AutoCloseable {
                 sessions,
                 identity,
                 delivery,
+                relay,
                 rate,
                 ids,
                 random,
@@ -91,6 +98,7 @@ public final class SubmissionRole implements AutoCloseable {
                 sessions,
                 identity,
                 delivery,
+                relay,
                 rate,
                 ids,
                 random,
@@ -110,6 +118,7 @@ public final class SubmissionRole implements AutoCloseable {
       SessionService sessions,
       IdentityService identity,
       DeliveryService delivery,
+      @Nullable Relay relay,
       SendRate rate,
       IdGenerator ids,
       SecureRandom random,
@@ -137,8 +146,8 @@ public final class SubmissionRole implements AutoCloseable {
     handlers.add(new SizeLimit(settings.maxMessageBytes(), metrics));
     handlers.add(new TraceHeaders(settings.hostName(), clock, true));
     handlers.add(new DataLineMessageHookHandler());
-    handlers.add(new SubmissionHooks(identity, rate, settings.maxRecipients()));
-    handlers.add(new SubmissionDelivery(delivery, identity, ids, clock));
+    handlers.add(new SubmissionHooks(identity, rate, settings.maxRecipients(), relay != null));
+    handlers.add(new SubmissionDelivery(delivery, identity, ids, clock, relay));
     handlers.add(new EnvelopeCleanup());
     chain.addAll(handlers);
     chain.wireExtensibleHandlers();

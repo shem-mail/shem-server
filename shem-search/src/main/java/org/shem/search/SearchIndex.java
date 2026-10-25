@@ -275,6 +275,10 @@ public final class SearchIndex implements MailboxExtension {
         indexBatch(batch);
       }
     } catch (IOException | StorageException | RuntimeException e) {
+      if (closed || !context.isOpen()) {
+        // The mailbox locked while a batch was running; the batch resumes at the next unlock.
+        return;
+      }
       LOG.log(Level.WARNING, "search indexing paused: " + e.getClass().getSimpleName());
     } finally {
       draining.set(false);

@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated with local submission (plan step 12). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
+Last updated with outbound delivery (plan step 13). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
 Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
 
@@ -19,6 +19,7 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | 10 Inbound SMTP | `shem-smtp` | Implemented per [ADR 0009](adr/0009-inbound-smtp.md) with minimal policy: recipient validation, no relay, size limits, encrypted spool, `250` only after durable commit. No kill -9 or real-MTA interoperability tests yet. |
 | 11 Mail policy | `shem-policy` | Implemented per [ADR 0010](adr/0010-mail-policy.md): SPF (jSPF), DKIM (jDKIM, streaming), DMARC evaluation, Authentication-Results, in-memory greylisting, reloadable literal rules with GTUBE, attachment checks, Junk routing. No scanner integrations, ARC, or DMARC reports; scores untuned. |
 | 12 Submission | `shem-smtp` | Implemented per [ADR 0011](adr/0011-submission.md): 465/587, own AUTH PLAIN/LOGIN over the shared session path (TLS required), envelope and header sender authorization, local recipients only, per-account rate limit; validated with Jakarta Mail. |
-| 13–17 | — | Not started: outbound delivery and DKIM signing, HTTP API, ACME, extraction, operations. |
+| 13 Outbound | `shem-outbound` | Implemented per [ADR 0012](adr/0012-outbound-delivery.md): durable plaintext queue (the documented exception), DKIM signing of queued bytes, MX/null-MX routing, retries/expiry, opportunistic STARTTLS, MTA-STS enforcement, DSNs via encrypted delivery. No DANE, TLSRPT, or real-MTA interoperability run. |
+| 14–17 | — | Not started: HTTP API, ACME, extraction, operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

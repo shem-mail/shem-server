@@ -13,7 +13,8 @@ import org.shem.common.DurableFiles;
 /**
  * The server's data directory and its exclusive process lock. Layout: {@code routing/} (public
  * routing directory), {@code mailboxes/} (ciphertext only), {@code spool/} (ciphertext-only
- * provisional files), {@code queue/} (outbound plaintext queue, separately permissioned).
+ * provisional files), {@code queue/} (outbound plaintext queue, the documented exception), and
+ * {@code dkim/} (server-wide DKIM signing keys).
  */
 public final class DataDirectory implements AutoCloseable {
   private final Path root;
@@ -49,7 +50,7 @@ public final class DataDirectory implements AutoCloseable {
       channel.close();
       throw new IOException("data directory is in use by another Shem process");
     }
-    for (String sub : new String[] {"routing", "mailboxes", "spool"}) {
+    for (String sub : new String[] {"routing", "mailboxes", "spool", "queue", "dkim"}) {
       DurableFiles.createPrivateDirectories(absolute.resolve(sub));
     }
     return new DataDirectory(absolute, channel, lock);
@@ -69,6 +70,14 @@ public final class DataDirectory implements AutoCloseable {
 
   public Path spool() {
     return root.resolve("spool");
+  }
+
+  public Path queue() {
+    return root.resolve("queue");
+  }
+
+  public Path dkimKeys() {
+    return root.resolve("dkim");
   }
 
   @Override

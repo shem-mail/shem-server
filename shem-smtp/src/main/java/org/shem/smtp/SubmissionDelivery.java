@@ -13,23 +13,28 @@ import org.apache.james.protocols.smtp.SMTPSession;
 import org.apache.james.protocols.smtp.hook.HookResult;
 import org.apache.james.protocols.smtp.hook.HookReturnCode;
 import org.apache.james.protocols.smtp.hook.MessageHook;
+import org.jspecify.annotations.Nullable;
 import org.shem.common.IdGenerator;
 import org.shem.delivery.DeliveryRequest;
 import org.shem.delivery.DeliveryService;
+import org.shem.delivery.MessageSource;
 import org.shem.delivery.RecipientDelivery;
 import org.shem.delivery.RecipientOutcome;
 import org.shem.identity.EmailAddress;
 import org.shem.identity.IdentityService;
 import org.shem.mailbox.MailboxLease;
+import org.shem.outbound.DkimSigning;
+import org.shem.outbound.OutboundQueue;
 import org.shem.policy.HeaderIdentities;
 import org.shem.store.DeliveryTarget;
 import org.shem.store.SpecialUse;
 
 /**
- * Delivers a submitted message to local recipients through encrypted delivery, after checking that
- * every From and Sender address belongs to the authenticated account. No plaintext queue is used.
- * Sent copies are left to the client (IMAP APPEND), so nothing is filed in the sender's Sent folder
- * (ADR 0011).
+ * Delivers a submitted message after checking that every From and Sender address belongs to the
+ * authenticated account: DKIM-signed when the From domain has a key, queued durably for remote
+ * recipients, and delivered encrypted to local ones. An all-local message never touches the
+ * plaintext queue. Sent copies are left to the client (IMAP APPEND), so nothing is filed in the
+ * sender's Sent folder (ADR 0011).
  */
 final class SubmissionDelivery implements MessageHook {
   private static final System.Logger LOG = System.getLogger(SubmissionDelivery.class.getName());
@@ -38,9 +43,15 @@ final class SubmissionDelivery implements MessageHook {
   private final IdentityService identity;
   private final IdGenerator ids;
   private final Clock clock;
+  private final SubmissionRole.@Nullable Relay relay;
 
   SubmissionDelivery(
-      DeliveryService delivery, IdentityService identity, IdGenerator ids, Clock clock) {
+      DeliveryService delivery,
+      IdentityService identity,
+      IdGenerator ids,
+      Clock clock,
+      SubmissionRole.@Nullable Relay relay) {
+    this.relay = relay;
     this.delivery = delivery;
     this.identity = identity;
     this.ids = ids;
@@ -106,6 +117,42 @@ final class SubmissionDelivery implements MessageHook {
             "5.7.1 From or Sender address not authorized for this account");
       }
     }
+    MessageSource signed = envelope;
+    String fromDomain = authors.get().getFirst();
+    fromDomain = fromDomain.substring(fromDomain.lastIndexOf('@') + 1);
+    SubmissionRole.Relay outbound = relay;
+    if (outbound != null) {
+      try {
+        signed = outbound.dkim().sign(fromDomain, envelope);
+      } catch (IOException | DkimSigning.SigningException e) {
+        LOG.log(
+            System.Logger.Level.ERROR, "DKIM signing failed: {0}", e.getClass().getSimpleName());
+        return result(HookReturnCode.denySoft(), SMTPRetCode.LOCAL_ERROR, "4.3.0 Try again later");
+      }
+    }
+    List<String> remote = Transactions.recipients(session).remote();
+    String envelopeSender =
+        envelope.getMaybeSender().asOptional().map(MailAddress::asString).orElse("");
+    if (!remote.isEmpty()) {
+      if (outbound == null) {
+        return result(
+            HookReturnCode.deny(),
+            SMTPRetCode.MAILBOX_PERM_UNAVAILABLE,
+            "5.7.0 Remote delivery is not available on this server");
+      }
+      // Queue first: a full queue then refuses the transaction before any local copy commits.
+      try {
+        outbound.queue().enqueue(envelopeSender, remote, signed);
+      } catch (OutboundQueue.QueueFullException e) {
+        return result(
+            HookReturnCode.denySoft(),
+            SMTPRetCode.SYSTEM_STORAGE_ERROR,
+            "4.3.1 Outbound queue full, try again later");
+      } catch (IOException e) {
+        LOG.log(System.Logger.Level.ERROR, "queue write failed: {0}", e.getClass().getSimpleName());
+        return result(HookReturnCode.denySoft(), SMTPRetCode.LOCAL_ERROR, "4.3.0 Try again later");
+      }
+    }
     List<RecipientDelivery> recipients = new ArrayList<>();
     for (Transactions.Recipients.Accepted a : Transactions.recipients(session).mailboxes()) {
       recipients.add(
@@ -118,15 +165,16 @@ final class SubmissionDelivery implements MessageHook {
               List.of("submission")));
     }
     if (recipients.isEmpty()) {
-      return result(
-          HookReturnCode.deny(), SMTPRetCode.TRANSACTION_FAILED, "5.5.1 No valid recipients");
+      return remote.isEmpty()
+          ? result(
+              HookReturnCode.deny(), SMTPRetCode.TRANSACTION_FAILED, "5.5.1 No valid recipients")
+          : result(HookReturnCode.ok(), SMTPRetCode.MAIL_OK, "2.6.0 Message queued for delivery");
     }
-    String sender = envelope.getMaybeSender().asOptional().map(MailAddress::asString).orElse("");
     List<RecipientOutcome> outcomes;
     try {
       outcomes =
           delivery.deliver(
-              new DeliveryRequest(ids.next(), recipients, envelope, clock.millis(), sender));
+              new DeliveryRequest(ids.next(), recipients, signed, clock.millis(), envelopeSender));
     } catch (RuntimeException e) {
       LOG.log(System.Logger.Level.ERROR, "delivery failed: {0}", e.getClass().getSimpleName());
       return result(HookReturnCode.denySoft(), SMTPRetCode.LOCAL_ERROR, "4.3.0 Try again later");

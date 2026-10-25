@@ -33,6 +33,14 @@ final class JspfDns implements DNSService {
         };
     try {
       List<String> records = resolver.lookup(request.getHostname(), type);
+      if (type == DnsResolver.Type.MX) {
+        records =
+            records.stream()
+                .sorted(java.util.Comparator.comparingInt(JspfDns::preference))
+                .map(r -> r.substring(r.indexOf(' ') + 1))
+                .filter(host -> !host.equals("."))
+                .toList();
+      }
       if ((type == DnsResolver.Type.MX || type == DnsResolver.Type.PTR)
           && records.size() > recordLimit) {
         return records.subList(0, recordLimit);
@@ -40,6 +48,14 @@ final class JspfDns implements DNSService {
       return records;
     } catch (DnsResolver.DnsTemporaryException e) {
       throw new TimeoutException(e.getMessage());
+    }
+  }
+
+  private static int preference(String mx) {
+    try {
+      return Integer.parseInt(mx.substring(0, mx.indexOf(' ')));
+    } catch (RuntimeException e) {
+      return Integer.MAX_VALUE;
     }
   }
 

@@ -65,6 +65,11 @@ final class SmtpFixture implements AutoCloseable {
   final TestCertificates.Files2 certificate;
   final InboundSmtpRole smtp;
   final SubmissionRole submission;
+  final org.shem.outbound.OutboundQueue queue;
+
+  /** The DKIM TXT record published for {@code s1._domainkey.example.org}. */
+  final String dkimRecord;
+
   final int port;
 
   /** DNS answers for policy, keyed by {@code name/TYPE}; unlisted names do not exist. */
@@ -191,6 +196,18 @@ final class SmtpFixture implements AutoCloseable {
             ids,
             RANDOM,
             clock);
+    queue =
+        org.shem.outbound.OutboundQueue.open(
+            root.resolve("queue"),
+            new org.shem.outbound.OutboundQueue.Limits(3, 10 << 20, Duration.ofDays(5)),
+            ids,
+            clock);
+    org.shem.outbound.DkimSigning dkim =
+        new org.shem.outbound.DkimSigning(root.resolve("dkim"), identity);
+    identity.setDkimSelector(
+        identity.directory().domainByName("example.org").orElseThrow().domainId(), "s1");
+    dkimRecord = dkim.generate("s1", "example.org");
+    SubmissionRole.Relay relay = new SubmissionRole.Relay(queue, dkim);
     submission =
         SubmissionRole.start(
             new SubmissionSettings(
@@ -208,6 +225,7 @@ final class SmtpFixture implements AutoCloseable {
             sessions,
             identity,
             delivery,
+            relay,
             tls,
             ids,
             RANDOM,

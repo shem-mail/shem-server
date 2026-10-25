@@ -9,8 +9,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
 import org.jspecify.annotations.Nullable;
 import org.shem.imap.ImapRole;
+import org.shem.outbound.DkimSigning;
+import org.shem.outbound.OutboundDelivery;
+import org.shem.outbound.OutboundQueue;
+import org.shem.outbound.OutboundSettings;
+import org.shem.policy.DnsResolver;
 import org.shem.policy.DnsjavaResolver;
 import org.shem.policy.Greylist;
 import org.shem.policy.InboundPolicy;
@@ -57,6 +63,13 @@ final class ServeCommand {
               tlsConfig.hostNames(),
               services.clock);
       String hostName = tlsConfig.hostNames().get(0);
+      ShemConfig.Policy policySettings = config.policy();
+      DnsResolver dns =
+          new DnsjavaResolver(
+              policySettings.dnsServers(),
+              policySettings.dnsTimeout(),
+              10_000,
+              Duration.ofHours(1));
       try (CertificateWatcher watcher =
               new CertificateWatcher(
                   tls,
@@ -65,8 +78,10 @@ final class ServeCommand {
                   Duration.ofMinutes(1));
           Timers timers = new Timers();
           ImapRole imap = startImap(services, tls, hostName);
-          InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor);
-          SubmissionRole submission = startSubmission(services, tls, hostName)) {
+          InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor, dns);
+          Outbound outbound = startOutbound(services, hostName, dns);
+          SubmissionRole submission =
+              startSubmission(services, tls, hostName, outbound == null ? null : outbound.relay)) {
         if (imap != null) {
           out.println("imap listening on port " + imap.port());
         }
@@ -108,7 +123,11 @@ final class ServeCommand {
   }
 
   private @Nullable InboundSmtpRole startSmtp(
-      Services services, ReloadableTlsContext tls, String hostName, ScheduledExecutorService timers)
+      Services services,
+      ReloadableTlsContext tls,
+      String hostName,
+      ScheduledExecutorService timers,
+      DnsResolver dns)
       throws Exception {
     ShemConfig.Smtp smtp = config.smtp();
     if (smtp == null) {
@@ -123,8 +142,7 @@ final class ServeCommand {
                 settings.dmarcReject(),
                 settings.dangerousAttachments(),
                 settings.blocklists()),
-            new DnsjavaResolver(
-                settings.dnsServers(), settings.dnsTimeout(), 10_000, Duration.ofHours(1)),
+            dns,
             services.random);
     Path rulesPath = settings.rulesFile();
     if (rulesPath != null) {
@@ -169,8 +187,65 @@ final class ServeCommand {
         services.clock);
   }
 
+  /** The outbound queue, its delivery worker, and the submission relay using them. */
+  private static final class Outbound implements AutoCloseable {
+    final SubmissionRole.Relay relay;
+    final OutboundDelivery delivery;
+
+    Outbound(SubmissionRole.Relay relay, OutboundDelivery delivery) {
+      this.relay = relay;
+      this.delivery = delivery;
+    }
+
+    @Override
+    public void close() {
+      delivery.close();
+    }
+  }
+
+  private @Nullable Outbound startOutbound(Services services, String hostName, DnsResolver dns)
+      throws Exception {
+    ShemConfig.Outbound settings = config.outbound();
+    if (settings == null) {
+      return null;
+    }
+    OutboundQueue queue =
+        OutboundQueue.open(
+            services.data.queue(),
+            new OutboundQueue.Limits(settings.maxItems(), settings.maxBytes(), settings.lifetime()),
+            services.ids,
+            services.clock);
+    OutboundDelivery delivery =
+        OutboundDelivery.create(
+            queue,
+            new OutboundSettings(
+                hostName,
+                25,
+                Duration.ofSeconds(30),
+                Duration.ofMinutes(5),
+                Duration.ofMinutes(10),
+                SSLContext.getDefault(),
+                OutboundSettings.DEFAULT_RETRIES,
+                settings.maxConcurrent(),
+                100),
+            dns,
+            services.delivery,
+            services.identity,
+            services.random,
+            services.clock);
+    delivery.start(Duration.ofSeconds(30));
+    return new Outbound(
+        new SubmissionRole.Relay(
+            queue, new DkimSigning(services.data.dkimKeys(), services.identity)),
+        delivery);
+  }
+
   private @Nullable SubmissionRole startSubmission(
-      Services services, ReloadableTlsContext tls, String hostName) throws Exception {
+      Services services,
+      ReloadableTlsContext tls,
+      String hostName,
+      SubmissionRole.@Nullable Relay relay)
+      throws Exception {
     ShemConfig.Submission submission = config.submission();
     if (submission == null) {
       return null;
@@ -193,6 +268,7 @@ final class ServeCommand {
         services.sessions,
         services.identity,
         services.delivery,
+        relay,
         tls,
         services.ids,
         services.random,

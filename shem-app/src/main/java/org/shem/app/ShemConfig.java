@@ -37,7 +37,8 @@ public record ShemConfig(
     @Nullable Imap imap,
     @Nullable Smtp smtp,
     @Nullable Submission submission,
-    Policy policy) {
+    Policy policy,
+    @Nullable Outbound outbound) {
 
   /** Listener certificate files (PEM) and the host names they must cover. */
   public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
@@ -91,6 +92,15 @@ public record ShemConfig(
           || maxRecipients <= 0
           || recipientsPerHour <= 0) {
         throw new IllegalArgumentException("submission limits must be positive");
+      }
+    }
+  }
+
+  /** Remote delivery of submitted mail through the plaintext outbound queue (ADR 0012). */
+  public record Outbound(int maxItems, long maxBytes, Duration lifetime, int maxConcurrent) {
+    public Outbound {
+      if (maxItems <= 0 || maxBytes <= 0 || maxConcurrent <= 0 || lifetime.isNegative()) {
+        throw new IllegalArgumentException("outbound limits must be positive");
       }
     }
   }
@@ -160,6 +170,11 @@ public record ShemConfig(
           "submission.maxConnectionsPerIp",
           "submission.maxRecipients",
           "submission.recipientsPerHour",
+          "outbound.enabled",
+          "outbound.maxItems",
+          "outbound.maxBytes",
+          "outbound.lifetime",
+          "outbound.maxConcurrent",
           "policy.junkScore",
           "policy.dmarcReject",
           "policy.dangerousAttachments",
@@ -189,6 +204,9 @@ public record ShemConfig(
     if (submission != null && tls == null) {
       throw new IllegalArgumentException(
           "submission requires tls: credentials are never accepted without TLS");
+    }
+    if (outbound != null && submission == null) {
+      throw new IllegalArgumentException("outbound.enabled requires a submission listener");
     }
     if (smtp != null && tls == null) {
       throw new IllegalArgumentException("smtp requires tls: STARTTLS is always offered");
@@ -233,7 +251,8 @@ public record ShemConfig(
         imap(p),
         smtp(p),
         submission(p),
-        policy(p, base));
+        policy(p, base),
+        outbound(p));
   }
 
   private static @Nullable Tls tls(Properties p, Path base) {
@@ -290,6 +309,24 @@ public record ShemConfig(
         integer(p, "submission.maxConnectionsPerIp", 20),
         integer(p, "submission.maxRecipients", 100),
         integer(p, "submission.recipientsPerHour", 500));
+  }
+
+  private static @Nullable Outbound outbound(Properties p) {
+    if (!bool(p, "outbound.enabled", false)) {
+      return null;
+    }
+    long maxBytes;
+    try {
+      maxBytes =
+          Long.parseLong(p.getProperty("outbound.maxBytes", String.valueOf(2L << 30)).trim());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("outbound.maxBytes must be an integer", e);
+    }
+    return new Outbound(
+        integer(p, "outbound.maxItems", 10_000),
+        maxBytes,
+        duration(p, "outbound.lifetime", Duration.ofDays(5)),
+        integer(p, "outbound.maxConcurrent", 16));
   }
 
   private static Policy policy(Properties p, Path base) {

@@ -74,7 +74,10 @@ public final class DnsjavaResolver implements DnsResolver {
       switch (record) {
         case ARecord a -> result.add(a.getAddress().getHostAddress());
         case AAAARecord a -> result.add(a.getAddress().getHostAddress());
-        case MXRecord mx -> result.add(mx.getTarget().toString(true));
+        case MXRecord mx -> {
+          String target = mx.getTarget().toString(true);
+          result.add(mx.getPriority() + " " + (target.isEmpty() ? "." : target));
+        }
         case PTRRecord ptr -> result.add(ptr.getTarget().toString(true));
         case TXTRecord txt -> result.add(String.join("", txt.getStrings()));
         default -> {}
