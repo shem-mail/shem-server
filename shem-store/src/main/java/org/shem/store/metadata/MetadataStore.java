@@ -61,6 +61,14 @@ public final class MetadataStore implements AutoCloseable {
         new Options(4L << 20, 20_000, 256, 50_000, Duration.ofDays(400));
   }
 
+  /** Rewrites message records during re-encryption (for example to rewrap content keys). */
+  @FunctionalInterface
+  public interface RecordTransform {
+    RecordTransform IDENTITY = record -> record;
+
+    MessageRecord apply(MessageRecord record) throws StorageException;
+  }
+
   /** Transaction body. */
   @FunctionalInterface
   public interface TxBody<T extends @Nullable Object> {
@@ -346,7 +354,7 @@ public final class MetadataStore implements AutoCloseable {
     rw.writeLock().lock();
     try {
       checkOpen();
-      compactLocked(null, manifest.dataVersion());
+      compactLocked(null, manifest.dataVersion(), RecordTransform.IDENTITY);
     } finally {
       rw.writeLock().unlock();
     }
@@ -356,14 +364,15 @@ public final class MetadataStore implements AutoCloseable {
    * Re-encrypts all metadata under a new data root (rotation/enrollment). Old snapshot and segment
    * files are removed after the new manifest is durable, except while pinned by a backup.
    */
-  public void reencrypt(SymmetricKey newDataRoot, int newDataVersion) throws StorageException {
+  public void reencrypt(SymmetricKey newDataRoot, int newDataVersion, RecordTransform transform)
+      throws StorageException {
     rw.writeLock().lock();
     try {
       checkOpen();
       if (newDataVersion <= manifest.dataVersion()) {
         throw new StorageException(StorageException.Kind.CONFLICT, "data version must increase");
       }
-      compactLocked(newDataRoot.copy(), newDataVersion);
+      compactLocked(newDataRoot.copy(), newDataVersion, transform);
     } finally {
       rw.writeLock().unlock();
     }
@@ -468,7 +477,7 @@ public final class MetadataStore implements AutoCloseable {
   private void maintain() throws StorageException {
     try {
       if (state.deltaOps >= options.compactAfterOps()) {
-        compactLocked(null, manifest.dataVersion());
+        compactLocked(null, manifest.dataVersion(), RecordTransform.IDENTITY);
       } else if (active.length() >= options.maxSegmentBytes()) {
         rollSegment();
       }
@@ -524,7 +533,8 @@ public final class MetadataStore implements AutoCloseable {
     }
   }
 
-  private void compactLocked(@Nullable SymmetricKey newRoot, int targetVersion)
+  private void compactLocked(
+      @Nullable SymmetricKey newRoot, int targetVersion, RecordTransform transform)
       throws StorageException {
     SymmetricKey writeRoot = newRoot != null ? newRoot : dataRoot;
     OpaqueId snapshotId = ids.next();
@@ -542,7 +552,7 @@ public final class MetadataStore implements AutoCloseable {
             Manifest.snapshotContext(mailboxId, snapshotId),
             state.txSeq,
             tables,
-            allLiveMessages());
+            transformed(allLiveMessages(), transform));
       }
       writer =
           Journal.Writer.create(
@@ -584,6 +594,8 @@ public final class MetadataStore implements AutoCloseable {
       deleteUnreferencedFiles();
     } catch (IOException | CryptoException e) {
       throw new StorageException(StorageException.Kind.UNAVAILABLE, "compaction failed", e);
+    } catch (TransformFailed e) {
+      throw (StorageException) java.util.Objects.requireNonNull(e.getCause());
     } finally {
       if (writer != null) {
         try {
@@ -595,6 +607,35 @@ public final class MetadataStore implements AutoCloseable {
       if (newRoot != null) {
         newRoot.close();
       }
+    }
+  }
+
+  private static Iterator<Map.Entry<MessageKey, MessageRecord>> transformed(
+      Iterator<Map.Entry<MessageKey, MessageRecord>> source, RecordTransform transform) {
+    return new Iterator<>() {
+      @Override
+      public boolean hasNext() {
+        return source.hasNext();
+      }
+
+      @Override
+      public Map.Entry<MessageKey, MessageRecord> next() {
+        Map.Entry<MessageKey, MessageRecord> entry = source.next();
+        try {
+          return Map.entry(entry.getKey(), transform.apply(entry.getValue()));
+        } catch (StorageException e) {
+          throw new TransformFailed(e);
+        }
+      }
+    };
+  }
+
+  /** Carries a transform failure out of the snapshot writer's iterator. */
+  private static final class TransformFailed extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
+    TransformFailed(StorageException cause) {
+      super(cause);
     }
   }
 

@@ -194,6 +194,14 @@ public final class BlobStore {
     }
   }
 
+  public long lastModifiedMillis(OpaqueId mailboxId, OpaqueId blobId) throws StorageException {
+    try {
+      return Files.getLastModifiedTime(path(mailboxId, blobId)).toMillis();
+    } catch (IOException e) {
+      throw new StorageException(StorageException.Kind.NOT_FOUND, "blob missing", e);
+    }
+  }
+
   /** Removes a blob; returns the freed ciphertext bytes (0 if already absent). */
   public long delete(OpaqueId mailboxId, OpaqueId blobId) throws StorageException {
     Path file = path(mailboxId, blobId);

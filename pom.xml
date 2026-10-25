@@ -18,6 +18,7 @@
     <module>shem-identity</module>
     <module>shem-store</module>
     <module>shem-delivery</module>
+    <module>shem-mailbox</module>
     <module>shem-app</module>
   </modules>
 
@@ -106,6 +107,11 @@
       <dependency>
         <groupId>org.shem</groupId>
         <artifactId>shem-delivery</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-mailbox</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

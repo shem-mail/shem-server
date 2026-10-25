@@ -324,7 +324,7 @@ class MetadataStoreTest {
     Folder inbox = store.write(tx -> tx.createFolder("INBOX", SpecialUse.INBOX));
     store.write(tx -> tx.append(inbox.folderId(), message("k")));
     try (SymmetricKey newRoot = SymmetricKey.generate(RANDOM)) {
-      store.reencrypt(newRoot, 2);
+      store.reencrypt(newRoot, 2, MetadataStore.RecordTransform.IDENTITY);
       assertThat(store.dataVersion()).isEqualTo(2);
       store.write(tx -> tx.append(inbox.folderId(), message("k")));
       store.close();
