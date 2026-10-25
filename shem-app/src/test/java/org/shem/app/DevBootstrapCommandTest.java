@@ -48,6 +48,15 @@ class DevBootstrapCommandTest {
     String enrolled =
         run(config, bootstrap + "\ncorrect horse battery staple\n", "enroll", "alice@example.org");
     assertThat(enrolled).contains("enrolled; new key fingerprint");
+    String app =
+        run(
+            config,
+            "correct horse battery staple\n",
+            "app-password",
+            "alice@example.org",
+            "laptop");
+    assertThat(app).contains("app password for IMAP and SMTP");
+    assertThat(app).containsPattern("[a-z2-7]{4}(-[a-z2-7]{4}){6}");
     // The bootstrap password never reaches the data directory.
     try (var files = Files.walk(dir.resolve("data"))) {
       for (Path f : (Iterable<Path>) files::iterator) {

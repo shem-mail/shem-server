@@ -45,7 +45,7 @@ final class ImapAuthentication {
     InetAddress source = remote == null ? InetAddress.getLoopbackAddress() : remote.getAddress();
     MailboxLease lease;
     try {
-      lease = sessions.authenticate(username, password, source, Capability.MAIL_ACCESS);
+      lease = sessions.authenticateMailClient(username, password, source, Capability.MAIL_ACCESS);
     } catch (AuthenticationException e) {
       return switch (e.reason()) {
         case THROTTLED -> Result.THROTTLED;

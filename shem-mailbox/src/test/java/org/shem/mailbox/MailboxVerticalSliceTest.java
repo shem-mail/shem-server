@@ -279,6 +279,18 @@ class MailboxVerticalSliceTest {
           server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT)) {
         assertThat(web.principal().can(Capability.KEY_ADMINISTRATION)).isTrue();
       }
+      assertThatThrownBy(
+              () ->
+                  server.sessions.authenticateMailClient(
+                      "alice@example.org", PASSWORD, CLIENT, Capability.MAIL_ACCESS))
+          .as("the primary password never works for mail clients")
+          .extracting(e -> ((AuthenticationException) e).reason())
+          .isEqualTo(AuthenticationException.Reason.INVALID);
+      try (MailboxLease mailClient =
+          server.sessions.authenticateMailClient(
+              "alice@example.org", appPassword, CLIENT, Capability.SUBMIT)) {
+        assertThat(mailClient.principal().slotKind()).isEqualTo(SlotKind.APP);
+      }
       assertThatThrownBy(() -> server.lifecycle.createAppPassword(phone, "nested"))
           .isInstanceOf(SecurityException.class);
       assertThat(server.lifecycle.slots(owner)).extracting(s -> s.label()).contains("phone");

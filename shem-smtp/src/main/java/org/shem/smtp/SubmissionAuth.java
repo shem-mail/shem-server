@@ -204,7 +204,8 @@ final class SubmissionAuth implements CommandHandler<SMTPSession>, EhloExtension
     }
     InetAddress source = session.getRemoteAddress().getAddress();
     try {
-      MailboxLease lease = sessions.authenticate(username, password, source, Capability.SUBMIT);
+      MailboxLease lease =
+          sessions.authenticateMailClient(username, password, source, Capability.SUBMIT);
       session.setAttachment(LEASE, lease, ProtocolSession.State.Connection);
       session.setUsername(Username.of(lease.principal().address().toString()));
       return OK;

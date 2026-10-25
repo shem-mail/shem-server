@@ -48,7 +48,7 @@ class SubmissionIT {
     assertThat(client.command("STARTTLS")).startsWith("220");
     client.startTls();
     client.command("EHLO laptop");
-    assertThat(client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, SmtpFixture.PASSWORD)))
+    assertThat(client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, fixture.appPassword)))
         .startsWith("235 2.7.0");
     return client;
   }
@@ -61,7 +61,7 @@ class SubmissionIT {
       List<String> ehlo = client.reply();
       assertThat(ehlo).anyMatch(l -> l.contains("STARTTLS"));
       assertThat(ehlo).noneMatch(l -> l.contains("AUTH"));
-      assertThat(client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, SmtpFixture.PASSWORD)))
+      assertThat(client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, fixture.appPassword)))
           .startsWith("538 5.7.11");
       assertThat(client.command("MAIL FROM:<alice@example.org>")).startsWith("530 5.7.0");
       assertThat(client.command("STARTTLS")).startsWith("220");
@@ -89,7 +89,7 @@ class SubmissionIT {
                               ("carol@example.org\0"
                                       + SmtpFixture.ALICE
                                       + "\0"
-                                      + SmtpFixture.PASSWORD)
+                                      + fixture.appPassword)
                                   .getBytes(StandardCharsets.UTF_8))))
           .as("authorization identity must match")
           .startsWith("421");
@@ -122,7 +122,7 @@ class SubmissionIT {
       client.command("EHLO laptop");
       assertThat(client.command("AUTH LOGIN")).startsWith("334 VXNlcm5hbWU6");
       assertThat(client.command(b64(SmtpFixture.ALICE))).startsWith("334 UGFzc3dvcmQ6");
-      assertThat(client.command(b64(SmtpFixture.PASSWORD))).startsWith("235");
+      assertThat(client.command(b64(fixture.appPassword))).startsWith("235");
       assertThat(
               client.send(
                   SmtpFixture.ALICE,
@@ -278,12 +278,24 @@ class SubmissionIT {
     message.setSubject("from a real client");
     message.setText("hello from jakarta mail");
     try (jakarta.mail.Transport transport = session.getTransport("smtp")) {
-      transport.connect(SmtpFixture.ALICE, SmtpFixture.PASSWORD);
+      transport.connect(SmtpFixture.ALICE, fixture.appPassword);
       transport.sendMessage(message, message.getAllRecipients());
     }
     String delivered = new String(fixture.aliceInbox().getFirst(), StandardCharsets.UTF_8);
     assertThat(delivered)
         .contains("Subject: from a real client")
         .contains("hello from jakarta mail");
+  }
+
+  @Test
+  void thePrimaryPasswordNeverAuthenticatesAMailClient() throws Exception {
+    try (SmtpClient client = fixture.submissionImplicitTls()) {
+      client.last();
+      client.command("EHLO laptop");
+      String wrong = client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, "not the password"));
+      String primary =
+          client.command("AUTH PLAIN " + plain(SmtpFixture.ALICE, SmtpFixture.PASSWORD));
+      assertThat(primary).startsWith("535").isEqualTo(wrong);
+    }
   }
 }

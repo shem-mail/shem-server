@@ -76,7 +76,7 @@ class ImapClientIT {
     fixture.deliver("First IMAP-MARKER subject", "alpha body IMAP-MARKER");
     fixture.deliver("Second", "beta body");
 
-    Store store = connect(ImapFixture.PASSWORD);
+    Store store = connect(fixture.appPassword);
     Folder inbox = store.getFolder("INBOX");
     inbox.open(Folder.READ_WRITE);
     assertThat(inbox.getMessageCount()).isEqualTo(2);
@@ -140,7 +140,7 @@ class ImapClientIT {
 
   @Test
   void idleSessionSeesNewDeliveries() throws Exception {
-    Store store = connect(ImapFixture.PASSWORD);
+    Store store = connect(fixture.appPassword);
     IMAPFolder inbox = (IMAPFolder) store.getFolder("INBOX");
     inbox.open(Folder.READ_WRITE);
     assertThat(inbox.getMessageCount()).isZero();
@@ -173,7 +173,10 @@ class ImapClientIT {
   void wrongPasswordIsRejectedAndLogoutLocksTheMailbox() throws Exception {
     assertThatThrownBy(() -> connect("wrong password!"))
         .isInstanceOf(AuthenticationFailedException.class);
-    Store store = connect(ImapFixture.PASSWORD);
+    assertThatThrownBy(() -> connect(ImapFixture.PASSWORD))
+        .as("the primary password is refused over IMAP; only app passwords work")
+        .isInstanceOf(AuthenticationFailedException.class);
+    Store store = connect(fixture.appPassword);
     assertThat(
             fixture.registry.isUnlocked(
                 fixture.identity.loginAccount(ImapFixture.USER).orElseThrow().mailboxId()))
@@ -210,7 +213,7 @@ class ImapClientIT {
     try (java.nio.file.WatchService watcher = tmp.getFileSystem().newWatchService()) {
       // Files created and deleted again still leave plaintext on the medium, so watch creations.
       tmp.register(watcher, java.nio.file.StandardWatchEventKinds.ENTRY_CREATE);
-      Store store = connect(ImapFixture.PASSWORD);
+      Store store = connect(fixture.appPassword);
       MimeMessage big = new MimeMessage(Session.getInstance(new Properties()));
       big.setSubject("Large TEMPFILE-MARKER");
       big.setText("TEMPFILE-MARKER line of filler text\r\n".repeat(60_000)); // ~2 MiB literal
@@ -231,7 +234,7 @@ class ImapClientIT {
 
   @Test
   void advertisesOnlyTestedCapabilities() throws Exception {
-    Store store = connect(ImapFixture.PASSWORD);
+    Store store = connect(fixture.appPassword);
     org.eclipse.angus.mail.imap.IMAPStore imap = (org.eclipse.angus.mail.imap.IMAPStore) store;
     for (String supported :
         List.of("IMAP4REV1", "IDLE", "MOVE", "UIDPLUS", "UNSELECT", "NAMESPACE", "SPECIAL-USE")) {
@@ -275,7 +278,7 @@ class ImapClientIT {
       raw.add(message);
       fixture.deliverRaw(message);
     }
-    Store store = connect(ImapFixture.PASSWORD);
+    Store store = connect(fixture.appPassword);
     IMAPFolder inbox = (IMAPFolder) store.getFolder("INBOX");
     inbox.open(Folder.READ_ONLY);
     List<String> probes = List.of("banana", "cherry date", "fig grape", "kiwi", "xyz", "elder ");

@@ -57,6 +57,9 @@ final class SmtpFixture implements AutoCloseable {
   static final long MAX_MESSAGE = 512 * 1024;
   static final int MEMORY_THRESHOLD = 64 * 1024;
 
+  /** An app password for alice: the only credential IMAP and submission accept. */
+  final String appPassword;
+
   final Path root;
   final Path spool;
   final IdentityService identity;
@@ -145,6 +148,13 @@ final class SmtpFixture implements AutoCloseable {
         sessions.authenticate(
             ALICE, bootstrap, InetAddress.getLoopbackAddress(), Capability.ENROLL)) {
       lifecycle.enroll(lease, PASSWORD);
+    }
+    // Mail clients only accept system-generated app passwords (ADR 0015).
+    try (MailboxLease lease =
+            sessions.authenticatePrimary(
+                ALICE, PASSWORD, java.net.InetAddress.getLoopbackAddress());
+        org.shem.crypto.Secret app = lifecycle.createAppPassword(lease, "test client")) {
+      appPassword = new String(app.exposeCopy(), StandardCharsets.UTF_8);
     }
     provisioning
         .provision(EmailAddress.parse(CAROL), 0, Duration.ofDays(1))

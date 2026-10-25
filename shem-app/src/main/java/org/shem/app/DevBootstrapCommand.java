@@ -85,6 +85,19 @@ final class DevBootstrapCommand {
                       .map(a -> a.publicKey().fingerprint())
                       .orElse("unavailable"));
         }
+        case "app-password" -> {
+          if (args.size() != 3) {
+            return usage();
+          }
+          String password = readSecret("password: ");
+          try (MailboxLease lease =
+                  services.sessions.authenticatePrimary(
+                      args.get(1), password, InetAddress.getLoopbackAddress());
+              Secret app = services.lifecycle.createAppPassword(lease, args.get(2))) {
+            out.println("app password for IMAP and SMTP (shown once):");
+            out.println(new String(app.exposeCopy(), StandardCharsets.UTF_8));
+          }
+        }
         case "dkim-key" -> {
           if (args.size() != 3) {
             return usage();
@@ -138,7 +151,7 @@ final class DevBootstrapCommand {
   private int usage() {
     out.println(
         "usage: shem dev <create-domain DOMAIN | create-account ADDRESS | enroll ADDRESS"
-            + " | dkim-key DOMAIN SELECTOR>");
+            + " | app-password ADDRESS LABEL | dkim-key DOMAIN SELECTOR>");
     return 2;
   }
 

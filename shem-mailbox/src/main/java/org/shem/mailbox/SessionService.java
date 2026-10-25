@@ -68,6 +68,21 @@ public final class SessionService {
   }
 
   /**
+   * Mail client login (IMAP, SMTP submission): system-generated app passwords only (ADR 0015). The
+   * primary password, which is protected by a second factor on the HTTP API, never works here;
+   * anything that is not an app password gets the same KDF cost, limiter accounting, and generic
+   * failure as a wrong one.
+   */
+  public MailboxLease authenticateMailClient(
+      String username, CharSequence credential, InetAddress source, Capability required)
+      throws AuthenticationException {
+    Optional<String> selector = Credentials.appPasswordSelector(credential);
+    // A selector no app password can have: no slot matches, so dummy work runs as for a miss.
+    return unlock(
+        username, credential, source, List.of(SlotKind.APP), selector.orElse("!"), required);
+  }
+
+  /**
    * Web/API login: the primary password or a bootstrap password, never an app password, so a
    * credential handed to a mail client cannot reach account management. The principal's
    * capabilities decide what the session may do.
