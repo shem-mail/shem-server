@@ -13,6 +13,8 @@
   <description>Self-hosted mail server with zero-access encrypted mailbox storage at rest.</description>
 
   <modules>
+    <module>shem-common</module>
+    <module>shem-crypto</module>
     <module>shem-app</module>
   </modules>
 
@@ -32,7 +34,8 @@
     <nullaway.version>0.14.3</nullaway.version>
     <google-java-format.version>1.36.1</google-java-format.version>
 
-    <!-- Phase 0 candidates (PLAN.md); pinned but not yet selected by any module. -->
+    <!-- Selected in docs/adr (Phase 0). -->
+    <tink.version>1.24.0</tink.version>
     <bouncycastle.version>1.86</bouncycastle.version>
     <lucene.version>10.5.2</lucene.version>
     <tika.version>4.1.0</tika.version>
@@ -75,6 +78,22 @@
         <groupId>org.jspecify</groupId>
         <artifactId>jspecify</artifactId>
         <version>${jspecify.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-crypto</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.crypto.tink</groupId>
+        <artifactId>tink</artifactId>
+        <version>${tink.version}</version>
       </dependency>
 
       <!-- Phase 0 candidates: verify licenses, APIs, and temp-file/cache behavior before use. -->
@@ -167,6 +186,8 @@
             <compilerArgs>
               <arg>-Xlint:all,-processing</arg>
               <arg>-XDcompilePolicy=simple</arg>
+              <!-- Required by Error Prone on JDK 21 builds; harmless on JDK 25. -->
+              <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
               <arg>--should-stop=ifError=FLOW</arg>
               <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
             </compilerArgs>
