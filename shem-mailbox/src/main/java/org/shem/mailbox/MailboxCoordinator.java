@@ -48,6 +48,7 @@ public final class MailboxCoordinator {
   private final ReentrantLock importLock = new ReentrantLock();
   private final Set<MailboxLease> leases = new HashSet<>();
   private final List<ChangeListener> listeners = new CopyOnWriteArrayList<>();
+  private final AutoCloseable commitSubscription;
   private Keyring keyring;
   private SymmetricKey masterKey;
   private boolean closed;
@@ -65,6 +66,13 @@ public final class MailboxCoordinator {
     this.metadata = metadata;
     this.keyring = keyring;
     this.masterKey = masterKey;
+    this.commitSubscription =
+        metadata.addCommitListener(
+            (txSeq, origin, changes) -> {
+              for (ChangeListener listener : listeners) {
+                listener.changed(txSeq, origin, changes);
+              }
+            });
   }
 
   public OpaqueId mailboxId() {
@@ -130,6 +138,11 @@ public final class MailboxCoordinator {
     keyLock.lock();
     try {
       try {
+        commitSubscription.close();
+      } catch (Exception e) {
+        LOG.log(Level.WARNING, "commit listener removal failed");
+      }
+      try {
         metadata.close();
       } catch (StorageException e) {
         LOG.log(Level.WARNING, "metadata close failed: " + e.kind());
@@ -147,18 +160,6 @@ public final class MailboxCoordinator {
   AutoCloseable subscribe(ChangeListener listener) {
     listeners.add(listener);
     return () -> listeners.remove(listener);
-  }
-
-  void notifyChanged() {
-    long txSeq;
-    try {
-      txSeq = metadata.read(view -> view.txSeq());
-    } catch (StorageException e) {
-      return;
-    }
-    for (ChangeListener listener : listeners) {
-      listener.changed(txSeq);
-    }
   }
 
   // ---- keys ----
@@ -246,7 +247,12 @@ public final class MailboxCoordinator {
   }
 
   /** Stores a client-supplied message (IMAP APPEND) with the same durability rules as delivery. */
-  long append(OpaqueId folderId, InputStream message, Flags flags, long internalDateMillis)
+  long append(
+      @Nullable Object origin,
+      OpaqueId folderId,
+      InputStream message,
+      Flags flags,
+      long internalDateMillis)
       throws StorageException {
     long quotaBytes = deps.identity().account(mailboxId).map(a -> a.quotaBytes()).orElse(0L);
     BlobStore.WrittenBlob blob;
@@ -267,8 +273,7 @@ public final class MailboxCoordinator {
               blob.plaintextBytes(),
               flags,
               internalDateMillis,
-              m -> metadata.write(tx -> tx.append(folderId, m)));
-      notifyChanged();
+              m -> metadata.write(origin, tx -> tx.append(folderId, m)));
       return uid;
     }
   }
@@ -340,9 +345,7 @@ public final class MailboxCoordinator {
         importOne(pending);
         processed++;
       }
-      if (processed > 0) {
-        notifyChanged();
-      }
+      if (processed > 0) {}
       return processed;
     } finally {
       importLock.unlock();

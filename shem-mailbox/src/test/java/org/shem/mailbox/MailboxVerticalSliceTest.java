@@ -452,7 +452,7 @@ class MailboxVerticalSliceTest {
   private static void awaitInbox(MailboxLease lease, int expected) throws Exception {
     Folder inbox = lease.read(v -> v.folderByRole(SpecialUse.INBOX).orElseThrow());
     java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-    AutoCloseable subscription = lease.subscribe(tx -> latch.countDown());
+    AutoCloseable subscription = lease.subscribe((txSeq, origin, changes) -> latch.countDown());
     try {
       if (uids(lease, inbox.folderId()).length < expected) {
         latch.await(10, java.util.concurrent.TimeUnit.SECONDS);

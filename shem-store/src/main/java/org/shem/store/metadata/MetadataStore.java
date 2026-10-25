@@ -69,6 +69,16 @@ public final class MetadataStore implements AutoCloseable {
     MessageRecord apply(MessageRecord record) throws StorageException;
   }
 
+  /**
+   * Observes committed transactions, in commit order, while the write lock is held. Implementations
+   * must be fast and must not write to the store; {@code origin} is the token passed to {@link
+   * #write(Object, TxBody)} (for example a protocol session), or {@code null}.
+   */
+  @FunctionalInterface
+  public interface CommitListener {
+    void committed(long txSeq, @Nullable Object origin, List<MetadataChange> changes);
+  }
+
   /** Transaction body. */
   @FunctionalInterface
   public interface TxBody<T extends @Nullable Object> {
@@ -98,6 +108,8 @@ public final class MetadataStore implements AutoCloseable {
   private MailboxState state;
   private Journal.Writer active;
   private final Set<String> pinned = new HashSet<>();
+  private final List<CommitListener> commitListeners =
+      new java.util.concurrent.CopyOnWriteArrayList<>();
   private boolean closed;
 
   private MetadataStore(
@@ -310,6 +322,18 @@ public final class MetadataStore implements AutoCloseable {
   }
 
   public <T extends @Nullable Object> T write(TxBody<T> body) throws StorageException {
+    return write(null, body);
+  }
+
+  /** Registers a commit listener until the returned handle is closed. */
+  public AutoCloseable addCommitListener(CommitListener listener) {
+    commitListeners.add(listener);
+    return () -> commitListeners.remove(listener);
+  }
+
+  /** Runs a transaction attributed to {@code origin} for commit listeners. */
+  public <T extends @Nullable Object> T write(@Nullable Object origin, TxBody<T> body)
+      throws StorageException {
     rw.writeLock().lock();
     try {
       checkOpen();
@@ -339,6 +363,10 @@ public final class MetadataStore implements AutoCloseable {
       state.txSeq = txSeq;
       for (Op op : tx.ops) {
         state.apply(op, snapshot);
+      }
+      List<MetadataChange> changes = List.copyOf(tx.changes);
+      for (CommitListener listener : commitListeners) {
+        listener.committed(txSeq, origin, changes);
       }
       maintain();
       return result;
@@ -938,6 +966,7 @@ public final class MetadataStore implements AutoCloseable {
 
   private final class TxImpl extends View implements Tx {
     final List<Op> ops = new ArrayList<>();
+    final List<MetadataChange> changes = new ArrayList<>();
     final Map<OpaqueId, Folder> folders;
     final Set<String> subscriptions;
     final Map<String, ImmutableBytes> properties;
@@ -1021,6 +1050,7 @@ public final class MetadataStore implements AutoCloseable {
       }
       folders.put(folder.folderId(), folder);
       ops.add(new Op.CreateFolder(folder));
+      changes.add(new MetadataChange.FolderCreated(folder));
       return folder;
     }
 
@@ -1037,12 +1067,14 @@ public final class MetadataStore implements AutoCloseable {
         throw new StorageException(StorageException.Kind.LIMIT_EXCEEDED, "invalid folder name", e);
       }
       ops.add(new Op.RenameFolder(folderId, newName));
+      changes.add(new MetadataChange.FolderRenamed(folderId, folder.name(), newName));
     }
 
     @Override
     public void deleteFolder(OpaqueId folderId) throws StorageException {
-      requireFolder(folderId);
+      Folder folder = requireFolder(folderId);
       folders.remove(folderId);
+      changes.add(new MetadataChange.FolderDeleted(folder));
       delta.subMap(MessageKey.first(folderId), true, MessageKey.last(folderId), true).clear();
       ops.add(new Op.DeleteFolder(folderId));
     }
@@ -1082,6 +1114,7 @@ public final class MetadataStore implements AutoCloseable {
       folders.put(folderId, folder.withUidNext(uid + 1));
       delta.put(key, record);
       ops.add(new Op.PutMessage(key, record));
+      changes.add(new MetadataChange.MessageAdded(key, record));
       return uid;
     }
 
@@ -1111,16 +1144,19 @@ public final class MetadataStore implements AutoCloseable {
       long next = ++modSeq;
       delta.put(key, record.withFlags(flags, next));
       ops.add(new Op.SetFlags(key, flags, next));
+      changes.add(new MetadataChange.FlagsChanged(key, record.flags(), flags, next));
       return next;
     }
 
     @Override
     public void remove(MessageKey key) throws StorageException {
-      if (message(key).isEmpty()) {
-        throw new StorageException(StorageException.Kind.NOT_FOUND, "no message");
-      }
+      MessageRecord removed =
+          message(key)
+              .orElseThrow(
+                  () -> new StorageException(StorageException.Kind.NOT_FOUND, "no message"));
       delta.put(key, MailboxState.TOMBSTONE);
       ops.add(new Op.RemoveMessage(key, ++modSeq));
+      changes.add(new MetadataChange.MessageRemoved(key, removed));
     }
 
     @Override

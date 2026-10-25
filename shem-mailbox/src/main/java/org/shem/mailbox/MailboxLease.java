@@ -51,10 +51,14 @@ public final class MailboxLease implements AutoCloseable {
 
   public <T extends @Nullable Object> T write(MetadataStore.TxBody<T> body)
       throws StorageException {
+    return write(null, body);
+  }
+
+  /** Writes, attributing the change to {@code origin} for change listeners. */
+  public <T extends @Nullable Object> T write(@Nullable Object origin, MetadataStore.TxBody<T> body)
+      throws StorageException {
     require(Capability.MAIL_ACCESS);
-    T result = coordinator.metadata().write(body);
-    coordinator.notifyChanged();
-    return result;
+    return coordinator.metadata().write(origin, body);
   }
 
   /** Verified plaintext stream of a stored message. */
@@ -71,8 +75,25 @@ public final class MailboxLease implements AutoCloseable {
   /** IMAP APPEND: encrypt, store durably, and add to a folder; returns the new UID. */
   public long append(OpaqueId folderId, InputStream message, Flags flags, long internalDateMillis)
       throws StorageException {
+    return append(null, folderId, message, flags, internalDateMillis);
+  }
+
+  /** APPEND attributed to {@code origin} for change listeners. */
+  public long append(
+      @Nullable Object origin,
+      OpaqueId folderId,
+      InputStream message,
+      Flags flags,
+      long internalDateMillis)
+      throws StorageException {
     require(Capability.MAIL_ACCESS);
-    return coordinator.append(folderId, message, flags, internalDateMillis);
+    return coordinator.append(origin, folderId, message, flags, internalDateMillis);
+  }
+
+  /** Opaque identity of the coordinator; differs after the mailbox was locked and unlocked. */
+  public Object coordinatorToken() {
+    checkValid();
+    return coordinator;
   }
 
   /** Imports pending deliveries; returns how many were processed. */

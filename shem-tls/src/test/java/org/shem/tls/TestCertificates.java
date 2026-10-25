@@ -25,6 +25,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 public final class TestCertificates {
   private TestCertificates() {}
 
+  /** Written PEM files and the certificate. */
   public record Files2(Path chain, Path key, X509Certificate certificate) {}
 
   public static Files2 write(Path directory, String host, Instant notBefore, Duration validity)

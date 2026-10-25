@@ -20,6 +20,7 @@
     <module>shem-delivery</module>
     <module>shem-mailbox</module>
     <module>shem-tls</module>
+    <module>shem-imap</module>
     <module>shem-app</module>
   </modules>
 
@@ -48,6 +49,8 @@
     <mime4j.version>0.8.15</mime4j.version>
     <jspf.version>1.0.5</jspf.version>
     <jdkim.version>0.5</jdkim.version>
+    <james.version>3.9.1</james.version>
+    <slf4j.version>2.0.17</slf4j.version>
 
     <!-- Plugins -->
     <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
@@ -119,6 +122,90 @@
         <groupId>org.shem</groupId>
         <artifactId>shem-tls</artifactId>
         <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-imap</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-imap</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>james-server-protocols-imap4</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>apache-james-mailbox-api</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <!-- Only stateless helpers (MessageResultImpl, MessageSearches, EventFactory); never
+             StoreMessageManager, which spools APPENDs to plaintext temp files (ADR 0005). -->
+        <groupId>org.apache.james</groupId>
+        <artifactId>apache-james-mailbox-store</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>event-bus-in-vm</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <!-- Convergence pins for James 3.9.1 transitive dependencies (newest version in the graph). -->
+      <dependency>
+        <groupId>io.projectreactor</groupId>
+        <artifactId>reactor-core</artifactId>
+        <version>3.7.19</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.4.8-jre</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.errorprone</groupId>
+        <artifactId>error_prone_annotations</artifactId>
+        <version>2.41.0</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>2.22.2</version>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.activation</groupId>
+        <artifactId>jakarta.activation-api</artifactId>
+        <version>2.1.4</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>3.18.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.angus</groupId>
+        <artifactId>angus-activation</artifactId>
+        <version>2.0.3</version>
+      </dependency>
+      <dependency>
+        <groupId>org.scala-lang</groupId>
+        <artifactId>scala-library</artifactId>
+        <version>2.13.16</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <!-- James logs user names and mailbox paths; Shem discards library logging (AGENTS.md). -->
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-nop</artifactId>
+        <version>${slf4j.version}</version>
       </dependency>
       <dependency>
         <groupId>com.google.crypto.tink</groupId>
