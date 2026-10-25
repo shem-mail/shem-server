@@ -12,7 +12,9 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | 4 Metadata store | `shem-store` | Implemented per [ADR 0004](adr/0004-metadata-store.md). |
 | 5 Sessions | `shem-mailbox` | Implemented: shared authenticator, dummy KDF, per-source limiter, leases/child leases, revocation, registry. MFA (HTTP) pending. |
 | 6 Delivery | `shem-delivery`, `shem-mailbox` | Implemented: locked delivery, receipts, idempotent import, enrollment, password/app/recovery slots, rotation with re-encryption, garbage collection. |
-| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, packaged jar + SBOM. No listeners yet. |
-| 7–17 | — | Not started: listener TLS, IMAP adapter ([ADR 0005](adr/0005-james-integration.md)), search, SMTP inbound/policy/submission, outbound, HTTP API, ACME, extraction, operations. |
+| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, `serve` (TLS + IMAP), packaged jar + SBOM. |
+| 7 Listener TLS | `shem-tls` | Implemented: PEM loading/validation (key match, hosts, validity, chain links), atomic hot reload, file watcher. |
+| 8 IMAP | `shem-imap` | Implemented per [ADR 0005](adr/0005-james-integration.md) with complete exact-evaluation SEARCH; validated with a real client (`ImapClientIT`). |
+| 9–17 | — | Not started: encrypted Lucene search, SMTP inbound/policy/submission, outbound, HTTP API, ACME, extraction, operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

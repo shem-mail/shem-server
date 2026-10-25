@@ -229,6 +229,28 @@ class ImapClientIT {
     PlaintextScan.assertNoMarkers(dir.resolve("mailboxes"), "TEMPFILE-MARKER");
   }
 
+  @Test
+  void advertisesOnlyTestedCapabilities() throws Exception {
+    Store store = connect(ImapFixture.PASSWORD);
+    org.eclipse.angus.mail.imap.IMAPStore imap = (org.eclipse.angus.mail.imap.IMAPStore) store;
+    for (String supported :
+        List.of("IMAP4REV1", "IDLE", "MOVE", "UIDPLUS", "UNSELECT", "NAMESPACE", "SPECIAL-USE")) {
+      assertThat(imap.hasCapability(supported)).as(supported).isTrue();
+    }
+    for (String hidden :
+        List.of(
+            "CONDSTORE",
+            "QRESYNC",
+            "ACL",
+            "QUOTA",
+            "METADATA",
+            "COMPRESS=DEFLATE",
+            "ESEARCH",
+            "LIST-EXTENDED")) {
+      assertThat(imap.hasCapability(hidden)).as(hidden).isFalse();
+    }
+  }
+
   private void awaitLocked() throws Exception {
     var mailbox = fixture.identity.loginAccount(ImapFixture.USER).orElseThrow().mailboxId();
     for (int i = 0; i < 100 && fixture.registry.isUnlocked(mailbox); i++) {

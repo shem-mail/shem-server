@@ -2,13 +2,17 @@ package org.shem.app;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 import org.shem.crypto.Argon2Parameters;
 
 /**
@@ -27,7 +31,22 @@ public record ShemConfig(
     Duration bootstrapValidity,
     Duration recreationWaitingPeriod,
     Duration oldKeyRetention,
-    boolean acceptMailBeforeEnrollment) {
+    boolean acceptMailBeforeEnrollment,
+    @Nullable Tls tls,
+    @Nullable Imap imap) {
+
+  /** Listener certificate files (PEM) and the host names they must cover. */
+  public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
+    public Tls {
+      hostNames = List.copyOf(hostNames);
+      if (hostNames.isEmpty()) {
+        throw new IllegalArgumentException("tls.hostNames must list at least one host");
+      }
+    }
+  }
+
+  /** IMAP listener (implicit TLS). */
+  public record Imap(InetSocketAddress bind, int maxConnections, int maxConnectionsPerIp) {}
 
   /** Deployment mode; production refuses development-only features. */
   public enum Mode {
@@ -49,7 +68,13 @@ public record ShemConfig(
           "account.bootstrapValidity",
           "account.recreationWaitingPeriod",
           "keys.oldKeyRetention",
-          "delivery.acceptBeforeEnrollment");
+          "delivery.acceptBeforeEnrollment",
+          "tls.certificateChain",
+          "tls.privateKey",
+          "tls.hostNames",
+          "imap.bind",
+          "imap.maxConnections",
+          "imap.maxConnectionsPerIp");
 
   public ShemConfig {
     if (mode == Mode.PRODUCTION && devBootstrapEnabled) {
@@ -63,6 +88,10 @@ public record ShemConfig(
     }
     if (maxMessageBytes < 1024 || maxMessageBytes > 512L * 1024 * 1024) {
       throw new IllegalArgumentException("message.maxBytes out of range");
+    }
+    if (imap != null && tls == null) {
+      throw new IllegalArgumentException(
+          "imap requires tls: credentials are never accepted without TLS");
     }
   }
 
@@ -99,7 +128,60 @@ public record ShemConfig(
         duration(p, "account.bootstrapValidity", Duration.ofDays(3)),
         duration(p, "account.recreationWaitingPeriod", Duration.ofDays(30)),
         duration(p, "keys.oldKeyRetention", Duration.ofMinutes(15)),
-        bool(p, "delivery.acceptBeforeEnrollment", true));
+        bool(p, "delivery.acceptBeforeEnrollment", true),
+        tls(p, base),
+        imap(p));
+  }
+
+  private static @Nullable Tls tls(Properties p, Path base) {
+    String chain = p.getProperty("tls.certificateChain");
+    String key = p.getProperty("tls.privateKey");
+    if (chain == null && key == null) {
+      return null;
+    }
+    if (chain == null || key == null) {
+      throw new IllegalArgumentException("tls.certificateChain and tls.privateKey go together");
+    }
+    List<String> hosts =
+        Arrays.stream(p.getProperty("tls.hostNames", "").split(","))
+            .map(String::trim)
+            .filter(h -> !h.isEmpty())
+            .toList();
+    return new Tls(base.resolve(chain.trim()), base.resolve(key.trim()), hosts);
+  }
+
+  private static @Nullable Imap imap(Properties p) {
+    String bind = p.getProperty("imap.bind");
+    if (bind == null) {
+      return null;
+    }
+    return new Imap(
+        address(bind, "imap.bind"),
+        integer(p, "imap.maxConnections", 500),
+        integer(p, "imap.maxConnectionsPerIp", 20));
+  }
+
+  /** {@code host:port}; IPv6 literals in brackets. */
+  static InetSocketAddress address(String value, String key) {
+    String v = value.trim();
+    int colon = v.lastIndexOf(':');
+    if (colon <= 0 || colon == v.length() - 1) {
+      throw new IllegalArgumentException(key + " must be host:port");
+    }
+    String host = v.substring(0, colon);
+    if (host.startsWith("[") && host.endsWith("]")) {
+      host = host.substring(1, host.length() - 1);
+    }
+    int port;
+    try {
+      port = Integer.parseInt(v.substring(colon + 1));
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(key + " has an invalid port", e);
+    }
+    if (port < 1 || port > 65535) {
+      throw new IllegalArgumentException(key + " has an invalid port");
+    }
+    return InetSocketAddress.createUnresolved(host, port);
   }
 
   private static boolean bool(Properties p, String key, boolean fallback) {

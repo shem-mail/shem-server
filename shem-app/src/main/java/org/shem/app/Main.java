@@ -8,6 +8,7 @@ import java.util.List;
  * Command-line entry point.
  *
  * <pre>
+ *   shem --config FILE serve          run the configured listeners
  *   shem --config FILE check          validate configuration and data directory
  *   shem --config FILE dev ...        local development bootstrap (see DevBootstrapCommand)
  * </pre>
@@ -21,7 +22,7 @@ public final class Main {
 
   static int run(List<String> args) throws Exception {
     if (args.size() < 3 || !args.get(0).equals("--config")) {
-      System.out.println("usage: shem --config FILE <check | dev ...>");
+      System.out.println("usage: shem --config FILE <serve | check | dev ...>");
       return 2;
     }
     ShemConfig config;
@@ -41,6 +42,11 @@ public final class Main {
                   + " accounts");
         }
         yield 0;
+      }
+      case "serve" -> {
+        java.util.concurrent.CountDownLatch stop = new java.util.concurrent.CountDownLatch(1);
+        Runtime.getRuntime().addShutdownHook(new Thread(stop::countDown, "shem-shutdown"));
+        yield new ServeCommand(config, System.out).run(stop);
       }
       case "dev" ->
           new DevBootstrapCommand(config, System.out, DevBootstrapCommand.stdin())

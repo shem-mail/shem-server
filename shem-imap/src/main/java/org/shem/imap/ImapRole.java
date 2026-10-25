@@ -77,8 +77,11 @@ public final class ImapRole implements AutoCloseable {
     c.addProperty("provisionDefaultMailboxes", false);
     c.addProperty("enableIdle", true);
     c.addProperty("compress", false);
+    // Advertise only capabilities covered by Shem's tests (ADR 0005); enable more with tests.
     c.addProperty(
-        "disabledCaps", "CONDSTORE|QRESYNC|OBJECTID|SAVEDATE|UIDONLY|PARTIAL|LIST-STATUS");
+        "disabledCaps",
+        "CONDSTORE|QRESYNC|OBJECTID|SAVEDATE|UIDONLY|PARTIAL|LIST-STATUS|ESEARCH|SEARCHRES|WITHIN"
+            + "|LIST-MYRIGHTS|STATUS=SIZE|LIST-EXTENDED|I18NLEVEL=1");
     return c;
   }
 

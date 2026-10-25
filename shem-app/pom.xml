@@ -37,6 +37,14 @@
       <groupId>org.shem</groupId>
       <artifactId>shem-mailbox</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.shem</groupId>
+      <artifactId>shem-tls</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.shem</groupId>
+      <artifactId>shem-imap</artifactId>
+    </dependency>
   </dependencies>
 
   <build>

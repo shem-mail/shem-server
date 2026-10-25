@@ -1,6 +1,6 @@
 # ADR 0005: Apache James Integration (Phase 0 Spike)
 
-Status: accepted as the Phase 3 approach; the adapter itself is not yet implemented.
+Status: accepted and implemented in `shem-imap` (Phase 3, exact-evaluation SEARCH).
 
 ## Spike findings (James 3.9.1 sources)
 
@@ -18,3 +18,18 @@ Authentication: the adapter's `authenticate` calls `SessionService` and stores t
 ## Residual risk
 
 A self-composed James stack is unsupported by the James project; interoperability must come from Shem's own transcript and real-client tests. Every James upgrade needs the temp-file inventory repeated (grep for `createTempFile`, `DeferredFileOutputStream`, `java.io.tmpdir`).
+
+## Implementation notes (shem-imap)
+
+- `ShemMailboxManager`/`ShemMessageManager` implement the mailbox API over `MailboxLease`; James's store module supplies only `SimpleMailboxMessage`, `MessageResultImpl`, `MessageSearches`, and `DefaultTextExtractor` over lazily decrypting content.
+- **Third finding:** `MessageSearches` logs and *skips* messages whose evaluation throws, which would make SEARCH silently incomplete on a decryption failure. Shem tracks every content read during a search and fails the SEARCH if any read failed.
+- `ShemLoginProcessor`/`ShemAuthenticateProcessor` replace James's LOGIN/AUTHENTICATE: PLAIN only (with SASL-IR), refused without TLS, client address passed to the shared limiter, authorization identity must equal the authentication identity, no user names in MDC.
+- `ShemImapServer` (subclass of `IMAPServer`): TLS from the reloadable listener context, no JMX registration (connection descriptions expose user names), lease closed on channel inactivity (LOGOUT, disconnect, timeout).
+- Metadata commits (from any writer, including receipt import) become in-VM `Added`/`Expunged`/`FlagsUpdated`/folder events, attributed to the originating session id, driving selected-mailbox state and IDLE.
+- Library logging goes to `slf4j-nop`.
+- Advertised: IMAP4rev1, AUTH=PLAIN, SASL-IR, LITERAL+, IDLE, MOVE, UIDPLUS, UNSELECT, ENABLE, NAMESPACE, CHILDREN, SPECIAL-USE, ID, APPENDLIMIT. Disabled until covered by tests: CONDSTORE, QRESYNC, OBJECTID, ESEARCH, SEARCHRES, WITHIN, LIST-EXTENDED, LIST-STATUS, LIST-MYRIGHTS, STATUS=SIZE, I18NLEVEL; ACL, QUOTA, METADATA, COMPRESS, REPLACE, XLIST processors are not installed.
+- James's decoder validates a command against the session state when it is decoded, so a SELECT pipelined in the same packet as LOGIN is rejected; clients that wait for the LOGIN completion (as RFC 3501 clients do) are unaffected.
+
+## Evidence
+
+`ImapClientIT` (Jakarta Mail/Angus IMAP client over TLS): locked delivery then LOGIN, FETCH, implicit `\Seen` on `BODY[]`, STORE, SEARCH by flag/subject/body, CREATE, COPY, EXPUNGE, RENAME, APPEND, LIST; IDLE push of a delivery made while selected; wrong password; lease released and mailbox locked after logout; plaintext connection not served; capability list; and a `WatchService` on a dedicated `java.io.tmpdir` proving that a 2 MiB APPEND/FETCH creates no temp file (the same test fails with `imap-literal*.tmp` when `inMemorySizeLimit` is lowered to 64 KiB). Manual check of the packaged jar with `openssl s_client`.
