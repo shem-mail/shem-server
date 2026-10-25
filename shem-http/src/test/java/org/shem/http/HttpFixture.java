@@ -91,6 +91,10 @@ final class HttpFixture implements AutoCloseable {
   final HttpRole http;
   final HttpClient client;
   final String base;
+
+  /** Alice's TOTP secret (registered at setup). */
+  final Secret aliceTotp = org.shem.crypto.Totp.generateSecret(RANDOM);
+
   private final ExecutorService background = Executors.newFixedThreadPool(2);
 
   HttpFixture(Path root) throws Exception {
@@ -140,6 +144,18 @@ final class HttpFixture implements AutoCloseable {
             ALICE, bootstrap, InetAddress.getLoopbackAddress(), Capability.ENROLL)) {
       lifecycle.enroll(lease, PASSWORD);
     }
+    try (MailboxLease lease =
+        sessions.authenticatePrimary(ALICE, PASSWORD, InetAddress.getLoopbackAddress())) {
+      lifecycle.addFactor(
+          lease,
+          new org.shem.crypto.MfaFactor(
+              org.shem.common.OpaqueId.random(RANDOM),
+              org.shem.crypto.MfaFactor.Kind.TOTP,
+              "phone",
+              clock.instant(),
+              0,
+              aliceTotp.copy()));
+    }
     TestCertificates.Files2 certificate =
         TestCertificates.write(
             root.resolve("tls"), "localhost", Instant.now().minusSeconds(60), Duration.ofDays(30));
@@ -170,6 +186,13 @@ final class HttpFixture implements AutoCloseable {
             .proxy(java.net.ProxySelector.of(null))
             .build();
     base = "https://localhost:" + http.port();
+  }
+
+  /** A fresh TOTP code: advances the clock one step so codes are never replays. */
+  String totp(Secret secret) throws Exception {
+    clock.advance(Duration.ofSeconds(org.shem.crypto.Totp.STEP_SECONDS));
+    return org.shem.crypto.Totp.code(
+        secret, clock.instant().getEpochSecond() / org.shem.crypto.Totp.STEP_SECONDS);
   }
 
   /** Provisions an account and returns its bootstrap password. */

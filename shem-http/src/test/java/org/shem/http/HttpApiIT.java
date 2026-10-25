@@ -30,9 +30,9 @@ class HttpApiIT {
   }
 
   /** A cookie session: the cookie header value and the CSRF token. */
-  private record Browser(String cookie, String csrf) {}
+  record Browser(String cookie, String csrf) {}
 
-  private static JsonNode json(HttpFixture.Response response) throws Exception {
+  static JsonNode json(HttpFixture.Response response) throws Exception {
     return JSON.readTree(response.body());
   }
 
@@ -49,6 +49,24 @@ class HttpApiIT {
             "Origin",
             HttpFixture.ORIGIN);
     assertThat(response.status()).isEqualTo(200);
+    if (json(response).path("mfaRequired").asBoolean(false)) {
+      assertThat(response.header("Set-Cookie")).as("no session before the second factor").isNull();
+      response =
+          fixture.call(
+              "POST",
+              "/api/v1/auth/mfa/verify",
+              JSON.createObjectNode()
+                  .put("challenge", json(response).get("challenge").asText())
+                  .put("totp", fixture.totp(fixture.aliceTotp))
+                  .toString(),
+              "Origin",
+              HttpFixture.ORIGIN);
+      assertThat(response.status()).isEqualTo(200);
+    }
+    return browser(response);
+  }
+
+  static Browser browser(HttpFixture.Response response) throws Exception {
     String setCookie = java.util.Objects.requireNonNull(response.header("Set-Cookie"));
     assertThat(setCookie)
         .startsWith(Api.COOKIE + "=")
@@ -157,7 +175,12 @@ class HttpApiIT {
                 .status())
         .as("bootstrap credential is gone")
         .isEqualTo(401);
-    login("carol@example.org", "a much better passphrase");
+    Browser carol = login("carol@example.org", "a much better passphrase");
+    assertThat(
+            json(fixture.call("GET", "/api/v1/me", null, "Cookie", carol.cookie()))
+                .get("mfaEnrollmentRequired")
+                .asBoolean())
+        .isTrue();
   }
 
   @Test
@@ -201,13 +224,16 @@ class HttpApiIT {
                 .status())
         .isEqualTo(403);
 
+    HttpFixture.Response challenge =
+        fixture.call(
+            "POST", "/api/v1/auth/login", credentials(HttpFixture.ALICE, HttpFixture.PASSWORD));
     HttpFixture.Response bearerLogin =
         fixture.call(
             "POST",
-            "/api/v1/auth/login",
+            "/api/v1/auth/mfa/verify",
             JSON.createObjectNode()
-                .put("username", HttpFixture.ALICE)
-                .put("password", HttpFixture.PASSWORD)
+                .put("challenge", json(challenge).get("challenge").asText())
+                .put("totp", fixture.totp(fixture.aliceTotp))
                 .put("bearer", true)
                 .toString());
     assertThat(bearerLogin.header("Set-Cookie")).as("bearer clients get no cookie").isNull();
@@ -334,12 +360,18 @@ class HttpApiIT {
     for (int i = 0; i < 3; i++) {
       login(HttpFixture.ALICE, HttpFixture.PASSWORD);
     }
+    HttpFixture.Response pending =
+        fixture.call(
+            "POST", "/api/v1/auth/login", credentials(HttpFixture.ALICE, HttpFixture.PASSWORD));
     assertThat(
             fixture
                 .call(
                     "POST",
-                    "/api/v1/auth/login",
-                    credentials(HttpFixture.ALICE, HttpFixture.PASSWORD))
+                    "/api/v1/auth/mfa/verify",
+                    JSON.createObjectNode()
+                        .put("challenge", json(pending).get("challenge").asText())
+                        .put("totp", fixture.totp(fixture.aliceTotp))
+                        .toString())
                 .status())
         .as("per-account session cap")
         .isEqualTo(429);

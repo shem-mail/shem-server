@@ -494,6 +494,44 @@ class MailboxVerticalSliceTest {
   }
 
   @Test
+  void secondFactorsPersistAcrossRotationAndTheLastOneIsProtected() throws Exception {
+    try (MailboxLease owner = enroll()) {
+      Secret totpSecret = org.shem.crypto.Totp.generateSecret(TestMailServer.RANDOM);
+      org.shem.crypto.Secret secretCopy = totpSecret.copy();
+      server.lifecycle.addFactor(
+          owner,
+          new org.shem.crypto.MfaFactor(
+              org.shem.common.OpaqueId.random(TestMailServer.RANDOM),
+              org.shem.crypto.MfaFactor.Kind.TOTP,
+              "phone",
+              java.time.Instant.now(),
+              0,
+              totpSecret));
+      KeyLifecycle.FactorInfo info = server.lifecycle.factors(owner).getFirst();
+      assertThatThrownBy(() -> server.lifecycle.removeFactor(owner, info.id()))
+          .isInstanceOf(KeyLifecycle.LifecycleException.class)
+          .hasMessageContaining("last");
+
+      long step = java.time.Instant.now().getEpochSecond() / org.shem.crypto.Totp.STEP_SECONDS;
+      String code = org.shem.crypto.Totp.code(secretCopy, step);
+      assertThat(server.lifecycle.verifyTotp(owner, code)).isTrue();
+      assertThat(server.lifecycle.verifyTotp(owner, code)).as("replay").isFalse();
+
+      server.lifecycle.rotateKeys(owner, PASSWORD);
+      try (MailboxLease again =
+          server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT)) {
+        assertThat(server.lifecycle.factors(again))
+            .extracting(KeyLifecycle.FactorInfo::label)
+            .containsExactly("phone");
+        assertThat(server.lifecycle.verifyTotp(again, code))
+            .as("the replay counter survived rotation")
+            .isFalse();
+      }
+      secretCopy.close();
+    }
+  }
+
+  @Test
   void garbageCollectionRemovesOnlyUnreferencedBlobs() throws Exception {
     try (MailboxLease lease = enroll()) {
       Folder inbox = lease.read(v -> v.folderByRole(SpecialUse.INBOX).orElseThrow());

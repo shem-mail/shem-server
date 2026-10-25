@@ -4,6 +4,7 @@ import java.lang.System.Logger.Level;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -22,10 +23,12 @@ import org.shem.crypto.KeySlot;
 import org.shem.crypto.Keyring;
 import org.shem.crypto.MailboxPrivateKey;
 import org.shem.crypto.MailboxPublicKey;
+import org.shem.crypto.MfaFactor;
 import org.shem.crypto.Secret;
 import org.shem.crypto.SlotDescriptor;
 import org.shem.crypto.SlotKind;
 import org.shem.crypto.SymmetricKey;
+import org.shem.crypto.Totp;
 import org.shem.identity.Account;
 import org.shem.identity.AccountState;
 import org.shem.identity.IdentityException;
@@ -512,6 +515,174 @@ public final class KeyLifecycle {
     } catch (org.shem.common.FormatException e) {
       LOG.log(Level.WARNING, "malformed key cutover marker; retaining old keys");
       return false;
+    }
+  }
+
+  // ---- second factors (ADR 0014) ----
+
+  /** Non-secret description of a registered second factor. */
+  public record FactorInfo(OpaqueId id, MfaFactor.Kind kind, String label, Instant createdAt) {}
+
+  public List<FactorInfo> factors(MailboxLease lease) throws StorageException, CryptoException {
+    lease.checkValid();
+    return lease
+        .coordinator()
+        .withKeys(
+            state ->
+                state.keyring.factors().stream()
+                    .map(f -> new FactorInfo(f.id(), f.kind(), f.label(), f.createdAt()))
+                    .toList());
+  }
+
+  /** Registers a second factor, taking ownership of it. */
+  public void addFactor(MailboxLease lease, MfaFactor factor)
+      throws LifecycleException, StorageException, CryptoException {
+    try {
+      requireKeyAdmin(lease);
+      lease.checkValid();
+    } catch (RuntimeException e) {
+      factor.close();
+      throw e;
+    }
+    updateFactors(
+        lease,
+        current -> {
+          List<MfaFactor> next = new ArrayList<>();
+          current.forEach(f -> next.add(f.copy()));
+          next.add(factor);
+          return next;
+        });
+  }
+
+  /**
+   * Removes a factor. The last factor can only be removed from a recovery-code session, which then
+   * must register a new one before the account is usable over HTTP again.
+   */
+  public void removeFactor(MailboxLease lease, OpaqueId factorId)
+      throws LifecycleException, StorageException, CryptoException {
+    requireKeyAdmin(lease);
+    List<FactorInfo> current = factors(lease);
+    if (current.stream().noneMatch(f -> f.id().equals(factorId))) {
+      throw new LifecycleException("no such factor");
+    }
+    if (current.size() <= 1 && lease.principal().slotKind() != SlotKind.RECOVERY) {
+      throw new LifecycleException("cannot remove the last second factor");
+    }
+    updateFactors(
+        lease,
+        list -> {
+          List<MfaFactor> next = new ArrayList<>();
+          list.stream().filter(f -> !f.id().equals(factorId)).forEach(f -> next.add(f.copy()));
+          return next;
+        });
+  }
+
+  /**
+   * Checks a TOTP code against the registered TOTP factors and records the accepted time step, so
+   * the same or an earlier code can never be used again.
+   */
+  public boolean verifyTotp(MailboxLease lease, String code)
+      throws StorageException, CryptoException {
+    lease.checkValid();
+    Instant now = clock.instant();
+    return lease
+        .coordinator()
+        .withKeys(
+            state -> {
+              for (MfaFactor factor : state.keyring.factors()) {
+                if (factor.kind() != MfaFactor.Kind.TOTP) {
+                  continue;
+                }
+                java.util.OptionalLong step =
+                    Totp.verify(factor.material(), code, now, factor.counter());
+                if (step.isPresent()) {
+                  persistCounter(state, lease.mailboxId(), factor.id(), step.getAsLong());
+                  return true;
+                }
+              }
+              return false;
+            });
+  }
+
+  /** Copies of the registered WebAuthn credentials; the caller closes them. */
+  public List<MfaFactor> webAuthnCredentials(MailboxLease lease)
+      throws StorageException, CryptoException {
+    lease.checkValid();
+    return lease
+        .coordinator()
+        .withKeys(
+            state ->
+                state.keyring.factors().stream()
+                    .filter(f -> f.kind() == MfaFactor.Kind.WEBAUTHN)
+                    .map(MfaFactor::copy)
+                    .toList());
+  }
+
+  /**
+   * Records a verified WebAuthn assertion's signature counter. A counter that does not increase
+   * (other than authenticators that always report zero) indicates a cloned authenticator and is
+   * refused.
+   */
+  public boolean recordWebAuthnUse(MailboxLease lease, OpaqueId factorId, long counter)
+      throws StorageException, CryptoException {
+    lease.checkValid();
+    return lease
+        .coordinator()
+        .withKeys(
+            state -> {
+              for (MfaFactor factor : state.keyring.factors()) {
+                if (factor.id().equals(factorId) && factor.kind() == MfaFactor.Kind.WEBAUTHN) {
+                  if (counter == 0 && factor.counter() == 0) {
+                    return true;
+                  }
+                  if (counter <= factor.counter()) {
+                    return false;
+                  }
+                  persistCounter(state, lease.mailboxId(), factorId, counter);
+                  return true;
+                }
+              }
+              return false;
+            });
+  }
+
+  private void persistCounter(
+      MailboxCoordinator.KeyState state, OpaqueId mailboxId, OpaqueId factorId, long counter)
+      throws StorageException, CryptoException {
+    List<MfaFactor> next = new ArrayList<>();
+    for (MfaFactor f : state.keyring.factors()) {
+      next.add(f.id().equals(factorId) ? f.withCounter(counter) : f.copy());
+    }
+    Keyring updated = state.keyring.withFactors(next);
+    try {
+      keyFiles.writeKeyring(mailboxId, updated.seal(state.masterKey));
+    } catch (StorageException | CryptoException | RuntimeException e) {
+      updated.close();
+      throw e;
+    }
+    state.keyring = updated;
+  }
+
+  private void updateFactors(
+      MailboxLease lease, java.util.function.Function<List<MfaFactor>, List<MfaFactor>> change)
+      throws StorageException, CryptoException, LifecycleException {
+    try {
+      lease
+          .coordinator()
+          .withKeys(
+              state -> {
+                Keyring updated = state.keyring.withFactors(change.apply(state.keyring.factors()));
+                try {
+                  keyFiles.writeKeyring(lease.mailboxId(), updated.seal(state.masterKey));
+                } catch (StorageException | CryptoException | RuntimeException e) {
+                  updated.close();
+                  throw e;
+                }
+                state.keyring = updated;
+                return null;
+              });
+    } catch (IllegalArgumentException e) {
+      throw new LifecycleException("too many second factors");
     }
   }
 

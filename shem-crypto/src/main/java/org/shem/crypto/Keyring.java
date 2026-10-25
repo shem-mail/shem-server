@@ -26,7 +26,11 @@ import org.shem.common.RecordWriter;
  */
 public final class Keyring implements AutoCloseable {
   private static final byte[] MAGIC = {'S', 'H', 'K', 'R'};
-  private static final int FORMAT = 1;
+
+  /** Format 2 adds MFA factors; format 1 keyrings remain readable (and have none). */
+  private static final int FORMAT = 2;
+
+  private static final int MAX_FACTORS = 16;
   private static final int MAX_KEYS = 64;
   private static final int MAX_SLOTS = 256;
 
@@ -37,6 +41,7 @@ public final class Keyring implements AutoCloseable {
   private final NavigableMap<Integer, MailboxPrivateKey> privateKeys;
   private final NavigableMap<Integer, SymmetricKey> dataRoots;
   private final List<SlotDescriptor> slots;
+  private final List<MfaFactor> factors;
 
   private Keyring(
       OpaqueId mailboxId,
@@ -45,9 +50,13 @@ public final class Keyring implements AutoCloseable {
       int currentDataVersion,
       NavigableMap<Integer, MailboxPrivateKey> privateKeys,
       NavigableMap<Integer, SymmetricKey> dataRoots,
-      List<SlotDescriptor> slots) {
+      List<SlotDescriptor> slots,
+      List<MfaFactor> factors) {
     if (!privateKeys.containsKey(currentKeyVersion) || !dataRoots.containsKey(currentDataVersion)) {
       throw new IllegalArgumentException("current key missing from keyring");
+    }
+    if (factors.size() > MAX_FACTORS) {
+      throw new IllegalArgumentException("too many factors");
     }
     this.mailboxId = mailboxId;
     this.generation = generation;
@@ -56,6 +65,7 @@ public final class Keyring implements AutoCloseable {
     this.privateKeys = privateKeys;
     this.dataRoots = dataRoots;
     this.slots = List.copyOf(slots);
+    this.factors = List.copyOf(factors);
   }
 
   /** A new keyring with one keypair and one data root, taking ownership of both. */
@@ -65,7 +75,8 @@ public final class Keyring implements AutoCloseable {
     keys.put(privateKey.keyVersion(), privateKey);
     NavigableMap<Integer, SymmetricKey> roots = new TreeMap<>();
     roots.put(dataVersion, dataRoot);
-    return new Keyring(mailboxId, 1, privateKey.keyVersion(), dataVersion, keys, roots, List.of());
+    return new Keyring(
+        mailboxId, 1, privateKey.keyVersion(), dataVersion, keys, roots, List.of(), List.of());
   }
 
   public OpaqueId mailboxId() {
@@ -116,6 +127,28 @@ public final class Keyring implements AutoCloseable {
     return slots.stream().filter(s -> s.slotId().equals(slotId)).findFirst();
   }
 
+  /** The second factors (owned by this keyring; do not close). */
+  public List<MfaFactor> factors() {
+    return factors;
+  }
+
+  /** Copy with the next generation and a different factor list, taking ownership of its entries. */
+  public Keyring withFactors(List<MfaFactor> newFactors) {
+    if (newFactors.size() > MAX_FACTORS) {
+      newFactors.forEach(MfaFactor::close);
+      throw new IllegalArgumentException("too many factors");
+    }
+    return new Keyring(
+        mailboxId,
+        generation + 1,
+        currentKeyVersion,
+        currentDataVersion,
+        copyKeys(),
+        copyRoots(),
+        slots,
+        newFactors);
+  }
+
   /** Copy with the next generation and a different slot list. */
   public Keyring withSlots(List<SlotDescriptor> newSlots) {
     if (newSlots.size() > MAX_SLOTS) {
@@ -128,7 +161,8 @@ public final class Keyring implements AutoCloseable {
         currentDataVersion,
         copyKeys(),
         copyRoots(),
-        newSlots);
+        newSlots,
+        copyFactors());
   }
 
   public Keyring withSlotAdded(SlotDescriptor slot) {
@@ -161,7 +195,14 @@ public final class Keyring implements AutoCloseable {
       throw new IllegalArgumentException("too many retained keys");
     }
     return new Keyring(
-        mailboxId, generation + 1, newPrivateKey.keyVersion(), newDataVersion, keys, roots, slots);
+        mailboxId,
+        generation + 1,
+        newPrivateKey.keyVersion(),
+        newDataVersion,
+        keys,
+        roots,
+        slots,
+        copyFactors());
   }
 
   /** Drops retained non-current versions once nothing references them. */
@@ -185,7 +226,14 @@ public final class Keyring implements AutoCloseable {
       }
     }
     return new Keyring(
-        mailboxId, generation + 1, currentKeyVersion, currentDataVersion, keys, roots, slots);
+        mailboxId,
+        generation + 1,
+        currentKeyVersion,
+        currentDataVersion,
+        keys,
+        roots,
+        slots,
+        copyFactors());
   }
 
   public byte[] seal(SymmetricKey masterKey) throws CryptoException {
@@ -205,9 +253,18 @@ public final class Keyring implements AutoCloseable {
           .string(slot.label())
           .i64(slot.createdAt().getEpochSecond());
     }
+    body.u16(factors.size());
+    for (MfaFactor factor : factors) {
+      body.id(factor.id())
+          .u8(factor.kind().code())
+          .string(factor.label())
+          .i64(factor.createdAt().getEpochSecond())
+          .i64(factor.counter())
+          .bytes(factor.material().bytes());
+    }
     byte[] plaintext = body.toByteArrayAndWipe();
     try {
-      byte[] ciphertext = masterKey.seal(plaintext, context(mailboxId, generation));
+      byte[] ciphertext = masterKey.seal(plaintext, context(mailboxId, generation, FORMAT));
       return new RecordWriter()
           .raw(MAGIC)
           .u8(FORMAT)
@@ -230,6 +287,7 @@ public final class Keyring implements AutoCloseable {
 
   public static Keyring open(byte[] sealed, OpaqueId expectedMailbox, SymmetricKey masterKey)
       throws CryptoException, FormatException {
+    int format = formatOf(sealed);
     RecordReader outer = header(sealed);
     OpaqueId mailboxId = outer.id();
     long generation = outer.i64();
@@ -240,7 +298,8 @@ public final class Keyring implements AutoCloseable {
     }
     NavigableMap<Integer, MailboxPrivateKey> keys = new TreeMap<>();
     NavigableMap<Integer, SymmetricKey> roots = new TreeMap<>();
-    try (Secret plaintext = masterKey.open(ciphertext, context(mailboxId, generation))) {
+    List<MfaFactor> factors = new ArrayList<>();
+    try (Secret plaintext = masterKey.open(ciphertext, context(mailboxId, generation, format))) {
       RecordReader reader = new RecordReader(plaintext.bytes());
       int currentKeyVersion = (int) reader.u32();
       int currentDataVersion = (int) reader.u32();
@@ -271,12 +330,41 @@ public final class Keyring implements AutoCloseable {
         String label = reader.string(SlotDescriptor.MAX_LABEL_BYTES);
         slots.add(new SlotDescriptor(slotId, kind, label, Instant.ofEpochSecond(reader.i64())));
       }
+      if (format >= 2) {
+        int factorCount = reader.u16();
+        if (factorCount > MAX_FACTORS) {
+          throw new FormatException("too many factors");
+        }
+        for (int i = 0; i < factorCount; i++) {
+          OpaqueId factorId = reader.id();
+          MfaFactor.Kind kind = MfaFactor.Kind.fromCode(reader.u8());
+          String label = reader.string(MfaFactor.MAX_LABEL_BYTES);
+          Instant created = Instant.ofEpochSecond(reader.i64());
+          long counter = reader.i64();
+          factors.add(
+              new MfaFactor(
+                  factorId,
+                  kind,
+                  label,
+                  created,
+                  counter,
+                  Secret.wrap(reader.bytes(MfaFactor.MAX_MATERIAL_BYTES))));
+        }
+      }
       reader.expectEnd();
       return new Keyring(
-          mailboxId, generation, currentKeyVersion, currentDataVersion, keys, roots, slots);
+          mailboxId,
+          generation,
+          currentKeyVersion,
+          currentDataVersion,
+          keys,
+          roots,
+          slots,
+          factors);
     } catch (FormatException | CryptoException | IllegalArgumentException e) {
       keys.values().forEach(MailboxPrivateKey::close);
       roots.values().forEach(SymmetricKey::close);
+      factors.forEach(MfaFactor::close);
       if (e instanceof IllegalArgumentException) {
         throw new FormatException("invalid keyring contents", e);
       }
@@ -289,14 +377,22 @@ public final class Keyring implements AutoCloseable {
     if (!java.util.Arrays.equals(reader.raw(4), MAGIC)) {
       throw new FormatException("not a keyring");
     }
-    if (reader.u8() != FORMAT || reader.u8() != CryptoProfile.PROFILE_VERSION) {
+    int format = reader.u8();
+    if ((format != 1 && format != FORMAT) || reader.u8() != CryptoProfile.PROFILE_VERSION) {
       throw new FormatException("unsupported keyring version");
     }
     return reader;
   }
 
-  private static AssociatedData context(OpaqueId mailboxId, long generation) {
-    return AssociatedData.builder(Purpose.KEYRING, FORMAT)
+  private static int formatOf(byte[] sealed) throws FormatException {
+    RecordReader reader = new RecordReader(sealed);
+    reader.raw(4);
+    return reader.u8();
+  }
+
+  /** The format version is bound into the associated data, so a downgrade fails to open. */
+  private static AssociatedData context(OpaqueId mailboxId, long generation, int format) {
+    return AssociatedData.builder(Purpose.KEYRING, format)
         .id("mailbox", mailboxId)
         .number("generation", generation)
         .build();
@@ -316,6 +412,12 @@ public final class Keyring implements AutoCloseable {
     return copy;
   }
 
+  private List<MfaFactor> copyFactors() {
+    List<MfaFactor> copy = new ArrayList<>();
+    factors.forEach(f -> copy.add(f.copy()));
+    return copy;
+  }
+
   private NavigableMap<Integer, SymmetricKey> copyRoots() {
     NavigableMap<Integer, SymmetricKey> copy = new TreeMap<>();
     dataRoots.forEach((version, key) -> copy.put(version, key.copy()));
@@ -327,6 +429,7 @@ public final class Keyring implements AutoCloseable {
   public void close() {
     privateKeys.values().forEach(MailboxPrivateKey::close);
     dataRoots.values().forEach(SymmetricKey::close);
+    factors.forEach(MfaFactor::close);
   }
 
   @Override

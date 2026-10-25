@@ -58,6 +58,8 @@ final class Api implements HttpHandler {
   private final KeyLifecycle lifecycle;
   private final IdentityService identity;
   private final Clock clock;
+  private final WebAuthn webAuthn;
+  private final java.security.SecureRandom random;
   private final ObjectMapper json =
       new ObjectMapper()
           .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -69,7 +71,10 @@ final class Api implements HttpHandler {
       SessionService auth,
       KeyLifecycle lifecycle,
       IdentityService identity,
-      Clock clock) {
+      Clock clock,
+      java.security.SecureRandom random) {
+    this.webAuthn = new WebAuthn(settings.origin());
+    this.random = random;
     this.settings = settings;
     this.sessions = sessions;
     this.auth = auth;
@@ -104,6 +109,11 @@ final class Api implements HttpHandler {
     }
 
     SessionStore.Session session() throws ApiException {
+      return session(false);
+    }
+
+    /** {@code factorEnrollment}: also allowed for sessions that must first register a factor. */
+    SessionStore.Session session(boolean factorEnrollment) throws ApiException {
       String t = token;
       if (t == null) {
         throw ApiException.unauthorized();
@@ -117,6 +127,9 @@ final class Api implements HttpHandler {
                 session.csrfToken.getBytes(StandardCharsets.US_ASCII))) {
           throw ApiException.forbidden();
         }
+      }
+      if (session.needsFactor && !factorEnrollment) {
+        throw new ApiException(403, "second factor enrollment required");
       }
       return session;
     }
@@ -154,6 +167,34 @@ final class Api implements HttpHandler {
         require(c, "POST");
         login(c, true);
       }
+      case "/api/v1/auth/mfa/webauthn-options" -> {
+        require(c, "POST");
+        loginWebAuthnOptions(c);
+      }
+      case "/api/v1/auth/mfa/verify" -> {
+        require(c, "POST");
+        verifyFactor(c);
+      }
+      case "/api/v1/me/mfa" -> {
+        require(c, "GET");
+        listFactors(c);
+      }
+      case "/api/v1/me/mfa/totp" -> {
+        require(c, "POST");
+        startTotp(c);
+      }
+      case "/api/v1/me/mfa/totp/confirm" -> {
+        require(c, "POST");
+        confirmTotp(c);
+      }
+      case "/api/v1/me/mfa/webauthn/options" -> {
+        require(c, "POST");
+        webAuthnRegistrationOptions(c);
+      }
+      case "/api/v1/me/mfa/webauthn" -> {
+        require(c, "POST");
+        registerWebAuthn(c);
+      }
       case "/api/v1/auth/logout" -> {
         require(c, "POST");
         logout(c);
@@ -184,9 +225,13 @@ final class Api implements HttpHandler {
       }
       default -> {
         String prefix = "/api/v1/me/app-passwords/";
+        String factors = "/api/v1/me/mfa/";
         if (p.startsWith(prefix) && p.length() > prefix.length()) {
           require(c, "DELETE");
           revokeAppPassword(c, p.substring(prefix.length()));
+        } else if (p.startsWith(factors) && p.length() > factors.length()) {
+          require(c, "DELETE");
+          removeFactor(c, p.substring(factors.length()));
         } else {
           throw new ApiException(404, "not found");
         }
@@ -218,9 +263,41 @@ final class Api implements HttpHandler {
         case UNAVAILABLE -> new ApiException(503, "temporarily unavailable");
       };
     }
-    SessionStore.Issued issued = sessions.create(lease);
+    if (!recovery && lease.principal().slotKind() == SlotKind.PASSWORD) {
+      List<KeyLifecycle.FactorInfo> factors;
+      try {
+        factors = lifecycle.factors(lease);
+      } catch (Exception e) {
+        lease.close();
+        throw lifecycleFailure(e);
+      }
+      if (!factors.isEmpty()) {
+        if (sessions.factorLocked(lease.mailboxId())) {
+          lease.close();
+          throw new ApiException(429, "too many attempts", SessionStore.FAILURE_WINDOW);
+        }
+        String challenge = sessions.createPending(lease);
+        ObjectNode out =
+            json.createObjectNode().put("mfaRequired", true).put("challenge", challenge);
+        ArrayNode methods = out.putArray("methods");
+        factors.stream()
+            .map(f -> f.kind().name().toLowerCase(Locale.ROOT))
+            .distinct()
+            .forEach(methods::add);
+        send(c.exchange, 200, out);
+        return;
+      }
+      SessionStore.Issued issued = sessions.create(lease);
+      issued.session().needsFactor = true;
+      issue(c, issued, bearer);
+      return;
+    }
+    issue(c, sessions.create(lease), bearer);
+  }
+
+  /** Sends a new session to the client as a cookie or, for bearer clients, in the body. */
+  private void issue(Call c, SessionStore.Issued issued, boolean bearer) throws IOException {
     ObjectNode out = sessionView(issued.session());
-    out.put("mfa", "not-configured");
     if (bearer) {
       out.put("token", issued.token());
     } else {
@@ -238,7 +315,7 @@ final class Api implements HttpHandler {
   }
 
   private void logout(Call c) throws ApiException, IOException {
-    c.session();
+    c.session(true);
     String token = c.token;
     if (token != null) {
       sessions.end(token);
@@ -248,7 +325,7 @@ final class Api implements HttpHandler {
   }
 
   private void me(Call c) throws ApiException, IOException {
-    send(c.exchange, 200, sessionView(c.session()));
+    send(c.exchange, 200, sessionView(c.session(true)));
   }
 
   private ObjectNode sessionView(SessionStore.Session session) {
@@ -264,6 +341,7 @@ final class Api implements HttpHandler {
       }
     }
     out.put("enrollmentRequired", session.principal().can(Capability.ENROLL));
+    out.put("mfaEnrollmentRequired", session.needsFactor);
     out.put("expiresAt", sessions.expiresAt(session).toString());
     out.put("csrfToken", session.csrfToken);
     return out;
@@ -376,6 +454,313 @@ final class Api implements HttpHandler {
       throw lifecycleFailure(e);
     }
     send(c.exchange, 201, out);
+  }
+
+  // ---- second factors (ADR 0014) ----
+
+  private void loginWebAuthnOptions(Call c) throws ApiException, IOException {
+    JsonNode body = body(c);
+    String id = string(body, "challenge", 128);
+    SessionStore.Pending pending = sessions.pending(id).orElseThrow(ApiException::unauthorized);
+    byte[] challenge = randomBytes();
+    pending.webAuthnChallenge = challenge;
+    ObjectNode out = json.createObjectNode();
+    out.put("challenge", b64(challenge));
+    out.put("rpId", webAuthn.rpId());
+    out.put("timeout", SessionStore.PENDING_LIFETIME.toMillis());
+    out.put("userVerification", "preferred");
+    ArrayNode allow = out.putArray("allowCredentials");
+    for (byte[] credentialId : credentialIds(pending.lease)) {
+      allow.addObject().put("type", "public-key").put("id", b64(credentialId));
+    }
+    send(c.exchange, 200, out);
+  }
+
+  private void verifyFactor(Call c) throws ApiException, IOException {
+    JsonNode body = body(c);
+    String id = string(body, "challenge", 128);
+    SessionStore.Pending pending = sessions.pending(id).orElseThrow(ApiException::unauthorized);
+    if (sessions.factorLocked(pending.lease.mailboxId())) {
+      throw new ApiException(429, "too many attempts", SessionStore.FAILURE_WINDOW);
+    }
+    boolean ok;
+    try {
+      if (body.hasNonNull("totp")) {
+        ok = lifecycle.verifyTotp(pending.lease, string(body, "totp", 16));
+      } else if (body.has("webauthn") && body.get("webauthn").isObject()) {
+        ok = verifyAssertion(pending, body.get("webauthn"));
+      } else {
+        throw ApiException.badRequest("totp or webauthn is required");
+      }
+    } catch (ApiException e) {
+      throw e;
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    if (!ok) {
+      sessions.factorFailed(id, pending);
+      throw ApiException.unauthorized();
+    }
+    issue(c, sessions.promote(id), body.path("bearer").asBoolean(false));
+  }
+
+  private boolean verifyAssertion(SessionStore.Pending pending, JsonNode assertion)
+      throws Exception {
+    byte[] challenge = pending.webAuthnChallenge;
+    if (challenge == null) {
+      return false;
+    }
+    pending.webAuthnChallenge = null;
+    byte[] credentialId = b64field(assertion, "credentialId");
+    byte[] authenticatorData = b64field(assertion, "authenticatorData");
+    byte[] clientData = b64field(assertion, "clientDataJSON");
+    byte[] signature = b64field(assertion, "signature");
+    byte[] userHandle =
+        assertion.hasNonNull("userHandle") ? b64field(assertion, "userHandle") : null;
+    List<org.shem.crypto.MfaFactor> credentials = lifecycle.webAuthnCredentials(pending.lease);
+    try {
+      for (org.shem.crypto.MfaFactor factor : credentials) {
+        byte[] material = factor.material().exposeCopy();
+        Long counter;
+        try {
+          counter =
+              webAuthn.authenticate(
+                  challenge,
+                  material,
+                  factor.counter(),
+                  credentialId,
+                  userHandle,
+                  authenticatorData,
+                  clientData,
+                  signature);
+        } finally {
+          Arrays.fill(material, (byte) 0);
+        }
+        if (counter != null) {
+          return lifecycle.recordWebAuthnUse(pending.lease, factor.id(), counter);
+        }
+      }
+      return false;
+    } finally {
+      credentials.forEach(org.shem.crypto.MfaFactor::close);
+    }
+  }
+
+  private void listFactors(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    ArrayNode list = json.createArrayNode();
+    try {
+      for (KeyLifecycle.FactorInfo f : lifecycle.factors(session.lease)) {
+        list.addObject()
+            .put("id", f.id().toString())
+            .put("type", f.kind().name().toLowerCase(Locale.ROOT))
+            .put("label", f.label())
+            .put("createdAt", f.createdAt().toString());
+      }
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    send(c.exchange, 200, json.createObjectNode().set("factors", list));
+  }
+
+  private void startTotp(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    stepUp(c, session, body(c));
+    org.shem.crypto.Secret secret = org.shem.crypto.Totp.generateSecret(random);
+    String encoded = org.shem.crypto.Totp.base32(secret);
+    session.replacePendingTotp(secret);
+    String account = session.principal().address().toString();
+    String uri =
+        "otpauth://totp/Shem:"
+            + java.net.URLEncoder.encode(account, StandardCharsets.UTF_8)
+            + "?secret="
+            + encoded
+            + "&issuer=Shem&algorithm=SHA1&digits=6&period=30";
+    send(c.exchange, 200, json.createObjectNode().put("secret", encoded).put("uri", uri));
+  }
+
+  private void confirmTotp(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    JsonNode body = body(c);
+    String code = string(body, "code", 16);
+    String label =
+        body.hasNonNull("label") ? string(body, "label", MAX_LABEL) : "authenticator app";
+    org.shem.crypto.MfaFactor factor;
+    synchronized (session) {
+      org.shem.crypto.Secret pending = session.pendingTotp;
+      if (pending == null) {
+        throw new ApiException(409, "no TOTP enrollment in progress");
+      }
+      java.util.OptionalLong step;
+      try {
+        step = org.shem.crypto.Totp.verify(pending, code, clock.instant(), 0);
+      } catch (org.shem.crypto.CryptoException e) {
+        throw lifecycleFailure(e);
+      }
+      if (step.isEmpty()) {
+        throw new ApiException(400, "code does not match");
+      }
+      factor =
+          new org.shem.crypto.MfaFactor(
+              OpaqueId.random(random),
+              org.shem.crypto.MfaFactor.Kind.TOTP,
+              label,
+              clock.instant(),
+              step.getAsLong(),
+              pending.copy());
+      session.replacePendingTotp(null);
+    }
+    addFactor(c, session, factor);
+  }
+
+  private void webAuthnRegistrationOptions(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    stepUp(c, session, body(c));
+    byte[] challenge = randomBytes();
+    synchronized (session) {
+      session.registrationChallenge = challenge;
+    }
+    ObjectNode out = json.createObjectNode();
+    out.put("challenge", b64(challenge));
+    out.putObject("rp").put("id", webAuthn.rpId()).put("name", "Shem");
+    String address = session.principal().address().toString();
+    out.putObject("user")
+        .put("id", b64(session.lease.mailboxId().toString().getBytes(StandardCharsets.US_ASCII)))
+        .put("name", address)
+        .put("displayName", address);
+    ArrayNode params = out.putArray("pubKeyCredParams");
+    for (int alg : new int[] {-7, -8, -257}) {
+      params.addObject().put("type", "public-key").put("alg", alg);
+    }
+    out.put("timeout", 300_000);
+    out.put("attestation", "none");
+    out.putObject("authenticatorSelection")
+        .put("userVerification", "preferred")
+        .put("residentKey", "discouraged");
+    ArrayNode exclude = out.putArray("excludeCredentials");
+    for (byte[] id : credentialIds(session.lease)) {
+      exclude.addObject().put("type", "public-key").put("id", b64(id));
+    }
+    send(c.exchange, 200, out);
+  }
+
+  private void registerWebAuthn(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    JsonNode body = body(c);
+    byte[] challenge;
+    synchronized (session) {
+      challenge = session.registrationChallenge;
+      session.registrationChallenge = null;
+    }
+    if (challenge == null) {
+      throw new ApiException(409, "no WebAuthn registration in progress");
+    }
+    String label = body.hasNonNull("label") ? string(body, "label", MAX_LABEL) : "security key";
+    WebAuthn.Registered registered;
+    try {
+      registered =
+          webAuthn.register(
+              challenge, b64field(body, "attestationObject"), b64field(body, "clientDataJSON"));
+    } catch (IllegalArgumentException e) {
+      throw ApiException.badRequest("registration could not be verified");
+    }
+    for (byte[] existing : credentialIds(session.lease)) {
+      if (Arrays.equals(existing, registered.credentialId().toByteArray())) {
+        throw new ApiException(409, "authenticator already registered");
+      }
+    }
+    addFactor(
+        c,
+        session,
+        new org.shem.crypto.MfaFactor(
+            OpaqueId.random(random),
+            org.shem.crypto.MfaFactor.Kind.WEBAUTHN,
+            label,
+            clock.instant(),
+            registered.counter(),
+            org.shem.crypto.Secret.wrap(registered.material().toByteArray())));
+  }
+
+  private void addFactor(Call c, SessionStore.Session session, org.shem.crypto.MfaFactor factor)
+      throws ApiException, IOException {
+    String id = factor.id().toString();
+    try {
+      lifecycle.addFactor(session.lease, factor);
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    if (session.needsFactor) {
+      // Registering the first factor completes this session's login.
+      session.needsFactor = false;
+      session.authenticatedAt = clock.instant();
+    }
+    send(c.exchange, 201, json.createObjectNode().put("id", id));
+  }
+
+  private void removeFactor(Call c, String rawId) throws ApiException, IOException {
+    SessionStore.Session session = c.session(true);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    stepUp(c, session, null);
+    OpaqueId id = OpaqueId.parseOrNull(rawId);
+    if (id == null) {
+      throw new ApiException(404, "not found");
+    }
+    try {
+      lifecycle.removeFactor(session.lease, id);
+    } catch (KeyLifecycle.LifecycleException e) {
+      throw "no such factor".equals(e.getMessage())
+          ? new ApiException(404, "not found")
+          : new ApiException(409, java.util.Objects.requireNonNullElse(e.getMessage(), "conflict"));
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    c.exchange.sendResponseHeaders(204, -1);
+  }
+
+  private List<byte[]> credentialIds(MailboxLease lease) throws ApiException {
+    List<org.shem.crypto.MfaFactor> credentials;
+    try {
+      credentials = lifecycle.webAuthnCredentials(lease);
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    try {
+      List<byte[]> ids = new ArrayList<>();
+      for (org.shem.crypto.MfaFactor factor : credentials) {
+        byte[] material = factor.material().exposeCopy();
+        try {
+          ids.add(webAuthn.credentialId(material));
+        } finally {
+          Arrays.fill(material, (byte) 0);
+        }
+      }
+      return ids;
+    } finally {
+      credentials.forEach(org.shem.crypto.MfaFactor::close);
+    }
+  }
+
+  private byte[] randomBytes() {
+    byte[] bytes = new byte[32];
+    random.nextBytes(bytes);
+    return bytes;
+  }
+
+  private static String b64(byte[] bytes) {
+    return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
+  private static byte[] b64field(JsonNode node, String field) throws ApiException {
+    String value = string(node, field, 64 * 1024);
+    try {
+      return java.util.Base64.getUrlDecoder().decode(value);
+    } catch (IllegalArgumentException e) {
+      throw ApiException.badRequest(field + " is not base64url");
+    }
   }
 
   // ---- helpers ----

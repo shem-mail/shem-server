@@ -58,7 +58,8 @@ public final class HttpRole implements AutoCloseable {
             params.setSSLParameters(parameters);
           }
         });
-    server.createContext("/", new Api(settings, sessions, auth, lifecycle, identity, clock));
+    server.createContext(
+        "/", new Api(settings, sessions, auth, lifecycle, identity, clock, random));
     ThreadPoolExecutor executor =
         new ThreadPoolExecutor(
             settings.maxConcurrentRequests(),

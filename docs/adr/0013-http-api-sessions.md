@@ -1,6 +1,6 @@
 # ADR 0013: HTTP API Sessions and Self-Service (Step 14, First Slice)
 
-Status: accepted for the self-service slice. MFA, admin authentication and the admin endpoints, exports, key rotation jobs, and the OpenAPI contract are still open.
+Status: accepted for the self-service slice. MFA is decided in [ADR 0014](0014-mfa.md). Admin authentication and the admin endpoints, exports, key rotation jobs, and the OpenAPI contract are still open.
 
 ## Decision
 
@@ -69,10 +69,7 @@ The following operations need a credential check within the last 5 minutes, othe
 
 ## Unresolved, recorded rather than weakened
 
-- **MFA:** no second factor exists yet. TOTP vs. WebAuthn and the protected storage for factors need their own ADR.
-  - In production the server refuses to start the HTTP API unless the operator sets `http.allowWithoutMfa=true`, an explicit, documented acceptance.
-  - Login responses say `"mfa": "not-configured"`.
-  - The planned flow is a pending challenge that holds the lease for at most a few minutes and is closed on failure or timeout.
+- **MFA:** superseded by [ADR 0014](0014-mfa.md). A second factor is mandatory, and the `http.allowWithoutMfa` opt-out has been removed.
 - **Admin side:** admin authentication, which must be separate from mailbox unlock, and the admin endpoints come next.
 - **Not yet built:** exports, rotation jobs, OpenAPI.
 - **JDK server limits:** the JDK server's own header and time limits are its defaults (`sun.net.httpserver.*`).

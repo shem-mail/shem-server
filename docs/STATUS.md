@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated with the first HTTP API slice (plan step 14). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
+Last updated with mandatory MFA for the HTTP API (plan step 14). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
 Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
 
@@ -20,7 +20,7 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | 11 Mail policy | `shem-policy` | Implemented per [ADR 0010](adr/0010-mail-policy.md): SPF (jSPF), DKIM (jDKIM, streaming), DMARC evaluation, Authentication-Results, in-memory greylisting, reloadable literal rules with GTUBE, attachment checks, Junk routing. No scanner integrations, ARC, or DMARC reports; scores untuned. |
 | 12 Submission | `shem-smtp` | Implemented per [ADR 0011](adr/0011-submission.md): 465/587, own AUTH PLAIN/LOGIN over the shared session path (TLS required), envelope and header sender authorization, local recipients only, per-account rate limit; validated with Jakarta Mail. |
 | 13 Outbound | `shem-outbound` | Implemented per [ADR 0012](adr/0012-outbound-delivery.md): durable plaintext queue (the documented exception), DKIM signing of queued bytes, MX/null-MX routing, retries/expiry, opportunistic STARTTLS, MTA-STS enforcement, DSNs via encrypted delivery. No DANE, TLSRPT, or real-MTA interoperability run. |
-| 14 HTTP API | `shem-http` | Partial per [ADR 0013](adr/0013-http-api-sessions.md): HTTPS server, lease-backed in-memory sessions, login/recovery/logout, `/me`, enrollment, password change, app passwords, recovery code, CSRF/Origin, step-up. Not yet: MFA (production requires explicit `http.allowWithoutMfa`), admin authentication and endpoints, exports, rotation jobs, OpenAPI. |
+| 14 HTTP API | `shem-http` | Partial per [ADR 0013](adr/0013-http-api-sessions.md): HTTPS server, lease-backed in-memory sessions, login/recovery/logout, `/me`, enrollment, password change, app passwords, recovery code, CSRF/Origin, step-up. Mandatory MFA (TOTP and WebAuthn) per [ADR 0014](adr/0014-mfa.md). Not yet: admin authentication and endpoints, exports, rotation jobs, OpenAPI. |
 | 15–17 | — | Not started: ACME, extraction, operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

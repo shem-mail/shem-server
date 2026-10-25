@@ -100,17 +100,14 @@ public record ShemConfig(
   /**
    * HTTPS API listener (ADR 0013).
    *
-   * @param origin the browser origin allowed for mutating requests; defaults to {@code https://}
-   *     plus the first TLS host name
-   * @param allowWithoutMfa explicit acknowledgement that the API runs without a second factor,
-   *     which is required in production until MFA exists
+   * @param origin the browser origin allowed for mutating requests and the WebAuthn relying party;
+   *     defaults to {@code https://} plus the first TLS host name
    */
   public record Http(
       InetSocketAddress bind,
       @Nullable String origin,
       Duration idleTimeout,
-      Duration absoluteLifetime,
-      boolean allowWithoutMfa) {}
+      Duration absoluteLifetime) {}
 
   /** Remote delivery of submitted mail through the plaintext outbound queue (ADR 0012). */
   public record Outbound(int maxItems, long maxBytes, Duration lifetime, int maxConcurrent) {
@@ -190,7 +187,6 @@ public record ShemConfig(
           "http.origin",
           "http.idleTimeout",
           "http.absoluteLifetime",
-          "http.allowWithoutMfa",
           "outbound.enabled",
           "outbound.maxItems",
           "outbound.maxBytes",
@@ -229,11 +225,6 @@ public record ShemConfig(
     if (http != null && tls == null) {
       throw new IllegalArgumentException(
           "http requires tls: credentials are never accepted without TLS");
-    }
-    if (http != null && mode == Mode.PRODUCTION && !http.allowWithoutMfa()) {
-      throw new IllegalArgumentException(
-          "the HTTP API has no second factor yet; set http.allowWithoutMfa=true to run it anyway"
-              + " (see ADR 0013)");
     }
     if (outbound != null && submission == null) {
       throw new IllegalArgumentException("outbound.enabled requires a submission listener");
@@ -352,8 +343,7 @@ public record ShemConfig(
         address(bind, "http.bind"),
         origin == null || origin.isBlank() ? null : origin.strip(),
         duration(p, "http.idleTimeout", Duration.ofMinutes(30)),
-        duration(p, "http.absoluteLifetime", Duration.ofHours(12)),
-        bool(p, "http.allowWithoutMfa", false));
+        duration(p, "http.absoluteLifetime", Duration.ofHours(12)));
   }
 
   private static @Nullable Outbound outbound(Properties p) {

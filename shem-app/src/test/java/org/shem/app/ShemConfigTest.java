@@ -119,18 +119,21 @@ class ShemConfigTest {
   }
 
   @Test
-  void productionHttpNeedsAnExplicitNoMfaAcknowledgement() {
+  void httpListenerRequiresTlsAndHasBoundedSessionDefaults() {
     Properties p = withTls();
     p.setProperty("http.bind", "0.0.0.0:443");
-    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
-        .hasMessageContaining("http.allowWithoutMfa");
-    p.setProperty("http.allowWithoutMfa", "true");
     ShemConfig.Http http =
         java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).http());
     assertThat(http.idleTimeout()).isEqualTo(java.time.Duration.ofMinutes(30));
-    Properties dev = withTls();
-    dev.setProperty("mode", "DEVELOPMENT");
-    dev.setProperty("http.bind", "127.0.0.1:8443");
-    assertThat(ShemConfig.fromProperties(dev, BASE).http()).isNotNull();
+    assertThat(http.absoluteLifetime()).isEqualTo(java.time.Duration.ofHours(12));
+    Properties noTls = base();
+    noTls.setProperty("http.bind", "127.0.0.1:8443");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(noTls, BASE))
+        .hasMessageContaining("http requires tls");
+    Properties removed = withTls();
+    removed.setProperty("http.allowWithoutMfa", "true");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(removed, BASE))
+        .as("MFA is mandatory; the opt-out no longer exists")
+        .hasMessageContaining("unknown configuration keys");
   }
 }
