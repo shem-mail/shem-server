@@ -1,6 +1,6 @@
 # Shem Server Implementation Plan
 
-Status: proposed architecture and delivery plan; no Java implementation exists yet.
+Status: proposed architecture and delivery plan; implementation in progress — see [docs/STATUS.md](docs/STATUS.md) and the [architecture decision records](docs/adr/README.md).
 
 Source: [Zero-access opslag van e-mail whitepaper](whitepaper.md), particularly sections 3-6, 8, and 9. These English documents translate the server-side design into implementation boundaries; they do not silently replace the whitepaper's security model.
 

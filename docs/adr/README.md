@@ -1,0 +1,13 @@
+# Architecture Decision Records
+
+Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explicit). Each record states the evidence actually gathered; "proposed" means it still needs the review named in the record.
+
+| ADR | Decision | Status |
+| --- | --- | --- |
+| [0001](0001-java-baseline-and-build.md) | Java 25 target, JDK 21 validation in this environment, build gates | Accepted, JDK 25 run pending |
+| [0002](0002-crypto-profile.md) | Crypto profile 1: Tink HPKE/streaming AEAD, key hierarchy, enrollment and rotation | Proposed (needs external review) |
+| [0003](0003-argon2id-budget.md) | Argon2id parameters, global KDF budget, per-source limits | Proposed (VPS benchmark pending) |
+| [0004](0004-metadata-store.md) | Own authenticated journal/snapshot segments instead of an embedded database | Accepted |
+| [0005](0005-james-integration.md) | James spike findings: implement mailbox API directly, in-memory literals | Accepted for Phase 3 |
+| [0006](0006-account-and-session-policies.md) | Locked-mailbox delivery, quota, bootstrap, app passwords, revocation policies | Proposed |
+| [0007](0007-process-roles.md) | Process roles and IPC | Open |
