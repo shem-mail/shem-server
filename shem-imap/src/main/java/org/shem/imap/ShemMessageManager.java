@@ -6,11 +6,13 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
@@ -43,6 +45,7 @@ import org.jspecify.annotations.Nullable;
 import org.reactivestreams.Publisher;
 import org.shem.common.OpaqueId;
 import org.shem.mailbox.MailboxLease;
+import org.shem.search.SearchIndex;
 import org.shem.store.StorageException;
 import org.shem.store.metadata.Flags;
 import org.shem.store.metadata.Folder;
@@ -114,7 +117,7 @@ final class ShemMessageManager implements MessageManager {
   public Publisher<MessageUid> search(SearchQuery query, MailboxSession session)
       throws MailboxException {
     MessageViews.FailureTracker tracker = new MessageViews.FailureTracker();
-    List<MailboxMessage> candidates = messages(MessageRange.all(), tracker);
+    List<MailboxMessage> candidates = candidates(query, tracker);
     List<MessageUid> result = new ArrayList<>();
     for (MessageSearchIndex.SearchResult hit :
         new MessageSearches(
@@ -130,6 +133,60 @@ final class ShemMessageManager implements MessageManager {
     // James's evaluator skips messages it cannot read; Shem refuses incomplete results instead.
     tracker.throwIfFailed();
     return Flux.fromIterable(result);
+  }
+
+  /**
+   * Messages that may match: all of them, minus messages the committed index covers and that cannot
+   * contain a required top-level BODY/TEXT value. Every remaining message is evaluated exactly, so
+   * index lag or gaps can only cost time, never results.
+   */
+  private List<MailboxMessage> candidates(SearchQuery query, MessageViews.FailureTracker tracker)
+      throws MailboxException {
+    List<MailboxMessage> all = messages(MessageRange.all(), tracker);
+    Optional<SearchIndex> index = lease.extension(SearchIndex.class);
+    if (index.isEmpty()) {
+      return all;
+    }
+    SearchIndex.Snapshot snapshot = index.get().acquire();
+    try {
+      Set<OpaqueId> allowed = null;
+      for (SearchQuery.Criterion criterion : query.getCriteria()) {
+        if (criterion instanceof SearchQuery.TextCriterion text
+            && (text.getType() == SearchQuery.Scope.BODY
+                || text.getType() == SearchQuery.Scope.FULL)) {
+          Optional<Set<OpaqueId>> hits =
+              index
+                  .get()
+                  .candidates(
+                      snapshot,
+                      text.getOperator().getValue(),
+                      text.getType() == SearchQuery.Scope.FULL);
+          if (hits.isPresent()) {
+            if (allowed == null) {
+              allowed = new HashSet<>(hits.get());
+            } else {
+              allowed.retainAll(hits.get());
+            }
+          }
+        }
+      }
+      if (allowed == null) {
+        return all;
+      }
+      List<MailboxMessage> filtered = new ArrayList<>();
+      for (MailboxMessage message : all) {
+        OpaqueId blob = ((Ids.BlobId) message.getMessageId()).id();
+        if (!snapshot.covers(blob) || allowed.contains(blob)) {
+          filtered.add(message);
+        }
+      }
+      return filtered;
+    } catch (IOException e) {
+      // A failing index is derived data: fall back to evaluating everything exactly.
+      return all;
+    } finally {
+      index.get().release(snapshot);
+    }
   }
 
   @Override

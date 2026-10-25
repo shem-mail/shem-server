@@ -49,6 +49,8 @@ public final class MailboxCoordinator {
   private final Set<MailboxLease> leases = new HashSet<>();
   private final List<ChangeListener> listeners = new CopyOnWriteArrayList<>();
   private final AutoCloseable commitSubscription;
+  private final java.util.Map<Class<? extends MailboxExtension>, MailboxExtension> extensions =
+      new java.util.concurrent.ConcurrentHashMap<>();
   private Keyring keyring;
   private SymmetricKey masterKey;
   private boolean closed;
@@ -137,6 +139,7 @@ public final class MailboxCoordinator {
     importLock.lock();
     keyLock.lock();
     try {
+      closeExtensions();
       try {
         commitSubscription.close();
       } catch (Exception e) {
@@ -154,6 +157,73 @@ public final class MailboxCoordinator {
       keyLock.unlock();
       importLock.unlock();
       onClosed.accept(this);
+    }
+  }
+
+  // ---- extensions ----
+
+  /** Opens all registered extensions; failures leave the extension absent, never the mailbox. */
+  void openExtensions() {
+    int version;
+    try {
+      version = metadata.dataVersion();
+    } catch (RuntimeException e) {
+      return;
+    }
+    for (MailboxExtensionFactory factory : deps.extensions()) {
+      try {
+        ExtensionContext context =
+            new ExtensionContext(
+                this,
+                deps.paths()
+                    .mailbox(mailboxId)
+                    .resolve(factory.type().getSimpleName().toLowerCase(java.util.Locale.ROOT)),
+                deps.extensionExecutor(),
+                version);
+        extensions.put(factory.type(), factory.open(context));
+      } catch (StorageException | CryptoException | RuntimeException e) {
+        LOG.log(Level.WARNING, "mailbox extension unavailable: " + factory.type().getSimpleName());
+      }
+    }
+  }
+
+  void closeExtensions() {
+    for (MailboxExtension extension : extensions.values()) {
+      try {
+        extension.close();
+      } catch (RuntimeException e) {
+        LOG.log(Level.WARNING, "mailbox extension close failed");
+      }
+    }
+    extensions.clear();
+  }
+
+  /** Restarts extensions, e.g. after re-encryption changed the data key they derive from. */
+  void restartExtensions() {
+    closeExtensions();
+    if (!isClosed()) {
+      openExtensions();
+    }
+  }
+
+  <E extends MailboxExtension> java.util.Optional<E> extension(Class<E> type) {
+    return java.util.Optional.ofNullable(type.cast(extensions.get(type)));
+  }
+
+  SymmetricKey deriveExtensionKey(org.shem.crypto.Purpose purpose, int dataVersion)
+      throws StorageException, CryptoException {
+    keyLock.lock();
+    try {
+      checkOpen();
+      SymmetricKey root =
+          keyring
+              .dataRoot(dataVersion)
+              .orElseThrow(
+                  () -> new StorageException(StorageException.Kind.CORRUPT, "data key missing"));
+      return root.derive(
+          purpose, new org.shem.common.RecordWriter().id(mailboxId).u32(dataVersion).toByteArray());
+    } finally {
+      keyLock.unlock();
     }
   }
 

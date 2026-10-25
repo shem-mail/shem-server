@@ -90,6 +90,12 @@ public final class MailboxLease implements AutoCloseable {
     return coordinator.append(origin, folderId, message, flags, internalDateMillis);
   }
 
+  /** The mailbox's extension of {@code type}, if registered and available. */
+  public <E extends MailboxExtension> java.util.Optional<E> extension(Class<E> type) {
+    checkValid();
+    return coordinator.extension(type);
+  }
+
   /** Opaque identity of the coordinator; differs after the mailbox was locked and unlocked. */
   public Object coordinatorToken() {
     checkValid();

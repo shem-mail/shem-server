@@ -175,10 +175,14 @@ final class EventPublisher {
                 folder));
   }
 
+  /**
+   * Delivers synchronously, as James's own store does: a command such as EXPUNGE must not complete
+   * before selected sessions have processed the change, or their responses would miss it.
+   */
   private void dispatch(Event event, OpaqueId folder) {
     eventBus
         .dispatch(event, Set.of(new MailboxIdRegistrationKey(new Ids.FolderId(folder))))
-        .subscribe();
+        .block();
   }
 
   private static MessageMetaData metaData(long uid, MessageRecord record) {

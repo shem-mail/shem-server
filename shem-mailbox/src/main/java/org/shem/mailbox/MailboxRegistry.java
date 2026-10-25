@@ -1,6 +1,7 @@
 package org.shem.mailbox;
 
 import java.lang.System.Logger.Level;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -36,7 +37,34 @@ public final class MailboxRegistry implements DeliveryListener, AutoCloseable {
       QuotaLedger quota,
       IdentityService identity,
       MetadataStore.Environment metadataEnvironment,
-      long maxMessageBytes) {}
+      long maxMessageBytes,
+      List<MailboxExtensionFactory> extensions,
+      java.util.concurrent.Executor extensionExecutor) {
+    public Dependencies {
+      extensions = List.copyOf(extensions);
+    }
+
+    /** Dependencies without extensions (tests, tools). */
+    public Dependencies(
+        MailboxPaths paths,
+        BlobStore blobs,
+        ReceiptStore receipts,
+        QuotaLedger quota,
+        IdentityService identity,
+        MetadataStore.Environment metadataEnvironment,
+        long maxMessageBytes) {
+      this(
+          paths,
+          blobs,
+          receipts,
+          quota,
+          identity,
+          metadataEnvironment,
+          maxMessageBytes,
+          List.of(),
+          Runnable::run);
+    }
+  }
 
   private final Dependencies deps;
   private final ExecutorService background;
@@ -97,6 +125,7 @@ public final class MailboxRegistry implements DeliveryListener, AutoCloseable {
         throw new IllegalStateException("new coordinator refused lease");
       }
       active.put(mailboxId, coordinator);
+      coordinator.openExtensions();
       try {
         int imported = coordinator.importPending(SYNCHRONOUS_IMPORT_LIMIT);
         if (imported == SYNCHRONOUS_IMPORT_LIMIT) {

@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated with the Phase 2 vertical slice. "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
+Last updated with the encrypted search index (plan step 9). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
 Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
 
@@ -15,6 +15,7 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, `serve` (TLS + IMAP), packaged jar + SBOM. |
 | 7 Listener TLS | `shem-tls` | Implemented: PEM loading/validation (key match, hosts, validity, chain links), atomic hot reload, file watcher. |
 | 8 IMAP | `shem-imap` | Implemented per [ADR 0005](adr/0005-james-integration.md) with complete exact-evaluation SEARCH; validated with a real client (`ImapClientIT`). |
-| 9–17 | — | Not started: encrypted Lucene search, SMTP inbound/policy/submission, outbound, HTTP API, ACME, extraction, operations. |
+| 9 Search index | `shem-search` | Implemented per [ADR 0008](adr/0008-search-index.md): encrypted Lucene Directory, trigram candidate filter verified against exact evaluation, rebuild on corruption/rotation. No benchmarks yet. |
+| 10–17 | — | Not started: SMTP inbound/policy/submission, outbound, HTTP API, ACME, extraction, operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

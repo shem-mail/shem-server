@@ -222,6 +222,7 @@ public final class KeyLifecycle {
   public void resume(MailboxLease lease) throws StorageException, CryptoException {
     MailboxCoordinator coordinator = lease.coordinator();
     Set<Integer> pendingVersions = coordinator.keyVersionsOfPendingReceipts();
+    boolean[] reencrypted = new boolean[1];
     coordinator.withKeys(
         state -> {
           Keyring keyring = state.keyring;
@@ -247,6 +248,7 @@ public final class KeyLifecycle {
           }
           if (coordinator.metadata().dataVersion() < keyring.currentDataVersion()) {
             coordinator.reencryptMetadata(state, keyring.currentDataVersion());
+            reencrypted[0] = true;
           }
           List<Integer> retireKeys = new ArrayList<>();
           for (int version : keyring.privateKeys().keySet()) {
@@ -270,6 +272,10 @@ public final class KeyLifecycle {
           removeStaleSlotFiles(mailboxId, state.keyring);
           return null;
         });
+    if (reencrypted[0]) {
+      // Extensions derive their keys from the data root; rebuild them under the new one.
+      coordinator.restartExtensions();
+    }
   }
 
   // ---- internals ----

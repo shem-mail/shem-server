@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -23,6 +24,7 @@ import org.shem.mailbox.KeyLifecycle;
 import org.shem.mailbox.MailboxProvisioning;
 import org.shem.mailbox.MailboxRegistry;
 import org.shem.mailbox.SessionService;
+import org.shem.search.SearchIndexFactory;
 import org.shem.store.BlobStore;
 import org.shem.store.MailboxPaths;
 import org.shem.store.ReceiptStore;
@@ -43,6 +45,7 @@ public final class Services implements AutoCloseable {
   public final SessionService sessions;
   public final MailboxProvisioning provisioning;
   private final ExecutorService background;
+  private final ExecutorService indexing;
 
   private Services(ShemConfig config, DataDirectory data, Clock clock, SecureRandom random)
       throws IOException, FormatException {
@@ -75,6 +78,16 @@ public final class Services implements AutoCloseable {
             TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(1024),
             Thread.ofVirtual().factory());
+    // Indexing is CPU-bound: a small platform pool, one queued drain task per unlocked mailbox.
+    // A rejected drain only delays coverage; SEARCH evaluates uncovered messages exactly.
+    this.indexing =
+        new ThreadPoolExecutor(
+            1,
+            2,
+            30,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(1024),
+            Thread.ofPlatform().name("shem-index-", 0).daemon(true).factory());
     this.registry =
         new MailboxRegistry(
             new MailboxRegistry.Dependencies(
@@ -84,7 +97,9 @@ public final class Services implements AutoCloseable {
                 quota,
                 identity,
                 metadataEnvironment,
-                config.maxMessageBytes()),
+                config.maxMessageBytes(),
+                List.of(new SearchIndexFactory()),
+                indexing),
             background);
     this.lifecycle =
         new KeyLifecycle(
@@ -134,6 +149,7 @@ public final class Services implements AutoCloseable {
     try {
       registry.close();
       background.shutdown();
+      indexing.shutdown();
     } finally {
       data.close();
     }

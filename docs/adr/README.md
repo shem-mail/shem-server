@@ -11,3 +11,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0005](0005-james-integration.md) | James spike findings: implement mailbox API directly, in-memory literals | Accepted for Phase 3 |
 | [0006](0006-account-and-session-policies.md) | Locked-mailbox delivery, quota, bootstrap, app passwords, revocation policies | Proposed |
 | [0007](0007-process-roles.md) | Process roles and IPC | Open |
+| [0008](0008-search-index.md) | Encrypted Lucene trigram index as a conservative SEARCH filter | Accepted |

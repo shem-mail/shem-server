@@ -43,6 +43,10 @@
     </dependency>
     <dependency>
       <groupId>org.shem</groupId>
+      <artifactId>shem-search</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.shem</groupId>
       <artifactId>shem-imap</artifactId>
     </dependency>
   </dependencies>

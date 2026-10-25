@@ -58,6 +58,7 @@ final class ImapFixture implements AutoCloseable {
   final ImapRole imap;
   final int port;
   private final ExecutorService background = Executors.newFixedThreadPool(2);
+  final ExecutorService indexing = Executors.newSingleThreadExecutor();
 
   ImapFixture(Path root) throws Exception {
     this.root = root;
@@ -83,7 +84,15 @@ final class ImapFixture implements AutoCloseable {
     registry =
         new MailboxRegistry(
             new MailboxRegistry.Dependencies(
-                paths, blobs, receipts, quota, identity, env, 10 << 20),
+                paths,
+                blobs,
+                receipts,
+                quota,
+                identity,
+                env,
+                10 << 20,
+                List.of(new org.shem.search.SearchIndexFactory()),
+                indexing),
             background);
     KeyLifecycle lifecycle =
         new KeyLifecycle(identity, registry, kdf, cheap, ids, RANDOM, clock, Duration.ZERO);
@@ -134,6 +143,23 @@ final class ImapFixture implements AutoCloseable {
             tls);
   }
 
+  void deliverRaw(byte[] message) {
+    delivery.deliver(
+        new DeliveryRequest(
+            OpaqueId.random(RANDOM),
+            List.of(
+                new RecipientDelivery(
+                    route(),
+                    USER,
+                    new DeliveryTarget.Role(SpecialUse.INBOX),
+                    0,
+                    List.of(),
+                    List.of())),
+            MessageSource.ofBytes(message),
+            System.currentTimeMillis(),
+            "bob@example.net"));
+  }
+
   void deliver(String subject, String body) {
     var routes = route();
     delivery.deliver(
@@ -175,5 +201,6 @@ final class ImapFixture implements AutoCloseable {
     imap.close();
     registry.close();
     background.shutdownNow();
+    indexing.shutdownNow();
   }
 }

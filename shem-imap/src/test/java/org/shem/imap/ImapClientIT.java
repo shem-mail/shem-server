@@ -251,6 +251,75 @@ class ImapClientIT {
     }
   }
 
+  @Test
+  void indexedSearchEqualsExactEvaluationDuringAndAfterIndexing() throws Exception {
+    java.util.Random random = new java.util.Random(11);
+    String[] words = {
+      "apple", "Banana", "cherry", "DATE", "elder", "fig", "grape", "honeydew", "kiwi"
+    };
+    List<byte[]> raw = new ArrayList<>();
+    for (int i = 0; i < 30; i++) {
+      StringBuilder body = new StringBuilder();
+      for (int w = 0; w < 25; w++) {
+        body.append(words[random.nextInt(words.length)]).append(' ');
+      }
+      byte[] message =
+          ("From: bob@example.net\r\nSubject: msg "
+                  + i
+                  + " "
+                  + words[i % words.length]
+                  + "\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+                  + body
+                  + "\r\n")
+              .getBytes(StandardCharsets.UTF_8);
+      raw.add(message);
+      fixture.deliverRaw(message);
+    }
+    Store store = connect(ImapFixture.PASSWORD);
+    IMAPFolder inbox = (IMAPFolder) store.getFolder("INBOX");
+    inbox.open(Folder.READ_ONLY);
+    List<String> probes = List.of("banana", "cherry date", "fig grape", "kiwi", "xyz", "elder ");
+    for (int round = 0; round < 2; round++) {
+      if (round == 1) {
+        // The first round may race with background indexing; the second runs once it settled.
+        try (org.shem.mailbox.MailboxLease probeLease =
+            fixture.sessions.authenticate(
+                ImapFixture.USER,
+                ImapFixture.PASSWORD,
+                java.net.InetAddress.getLoopbackAddress(),
+                org.shem.mailbox.Capability.MAIL_ACCESS)) {
+          org.shem.search.SearchIndex index =
+              probeLease.extension(org.shem.search.SearchIndex.class).orElseThrow();
+          assertThat(index.awaitIdle(java.time.Duration.ofSeconds(30))).isTrue();
+          org.shem.search.SearchIndex.Snapshot snapshot = index.acquire();
+          try {
+            assertThat(snapshot.coveredCount()).isEqualTo(30);
+          } finally {
+            index.release(snapshot);
+          }
+        }
+      }
+      for (String probe : probes) {
+        java.util.Set<Long> uids = new java.util.TreeSet<>();
+        for (Message m : inbox.search(new BodyTerm(probe))) {
+          uids.add(inbox.getUID(m));
+        }
+        java.util.Set<Long> expected = new java.util.TreeSet<>();
+        for (int i = 0; i < raw.size(); i++) {
+          if (org.apache.james.mime4j.utils.search.MessageMatcher.builder()
+              .searchContents(List.of(probe))
+              .caseInsensitive(true)
+              .includeHeaders(false)
+              .build()
+              .messageMatches(new java.io.ByteArrayInputStream(raw.get(i)))) {
+            expected.add((long) i + 1);
+          }
+        }
+        assertThat(uids).as("round %d probe '%s'", round, probe).isEqualTo(expected);
+      }
+    }
+  }
+
   private void awaitLocked() throws Exception {
     var mailbox = fixture.identity.loginAccount(ImapFixture.USER).orElseThrow().mailboxId();
     for (int i = 0; i < 100 && fixture.registry.isUnlocked(mailbox); i++) {
