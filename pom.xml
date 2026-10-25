@@ -19,6 +19,7 @@
     <module>shem-store</module>
     <module>shem-delivery</module>
     <module>shem-mailbox</module>
+    <module>shem-tls</module>
     <module>shem-app</module>
   </modules>
 
@@ -115,6 +116,11 @@
         <version>${project.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-tls</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.google.crypto.tink</groupId>
         <artifactId>tink</artifactId>
         <version>${tink.version}</version>
@@ -124,6 +130,11 @@
       <dependency>
         <groupId>org.bouncycastle</groupId>
         <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcpkix-jdk18on</artifactId>
         <version>${bouncycastle.version}</version>
       </dependency>
       <dependency>
