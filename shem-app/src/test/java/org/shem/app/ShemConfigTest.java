@@ -117,4 +117,20 @@ class ShemConfigTest {
         .hasMessageContaining("requires a submission listener");
     assertThat(ShemConfig.fromProperties(withTls(), BASE).outbound()).isNull();
   }
+
+  @Test
+  void productionHttpNeedsAnExplicitNoMfaAcknowledgement() {
+    Properties p = withTls();
+    p.setProperty("http.bind", "0.0.0.0:443");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
+        .hasMessageContaining("http.allowWithoutMfa");
+    p.setProperty("http.allowWithoutMfa", "true");
+    ShemConfig.Http http =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).http());
+    assertThat(http.idleTimeout()).isEqualTo(java.time.Duration.ofMinutes(30));
+    Properties dev = withTls();
+    dev.setProperty("mode", "DEVELOPMENT");
+    dev.setProperty("http.bind", "127.0.0.1:8443");
+    assertThat(ShemConfig.fromProperties(dev, BASE).http()).isNotNull();
+  }
 }

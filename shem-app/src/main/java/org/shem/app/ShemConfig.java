@@ -38,7 +38,8 @@ public record ShemConfig(
     @Nullable Smtp smtp,
     @Nullable Submission submission,
     Policy policy,
-    @Nullable Outbound outbound) {
+    @Nullable Outbound outbound,
+    @Nullable Http http) {
 
   /** Listener certificate files (PEM) and the host names they must cover. */
   public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
@@ -95,6 +96,21 @@ public record ShemConfig(
       }
     }
   }
+
+  /**
+   * HTTPS API listener (ADR 0013).
+   *
+   * @param origin the browser origin allowed for mutating requests; defaults to {@code https://}
+   *     plus the first TLS host name
+   * @param allowWithoutMfa explicit acknowledgement that the API runs without a second factor,
+   *     which is required in production until MFA exists
+   */
+  public record Http(
+      InetSocketAddress bind,
+      @Nullable String origin,
+      Duration idleTimeout,
+      Duration absoluteLifetime,
+      boolean allowWithoutMfa) {}
 
   /** Remote delivery of submitted mail through the plaintext outbound queue (ADR 0012). */
   public record Outbound(int maxItems, long maxBytes, Duration lifetime, int maxConcurrent) {
@@ -170,6 +186,11 @@ public record ShemConfig(
           "submission.maxConnectionsPerIp",
           "submission.maxRecipients",
           "submission.recipientsPerHour",
+          "http.bind",
+          "http.origin",
+          "http.idleTimeout",
+          "http.absoluteLifetime",
+          "http.allowWithoutMfa",
           "outbound.enabled",
           "outbound.maxItems",
           "outbound.maxBytes",
@@ -204,6 +225,15 @@ public record ShemConfig(
     if (submission != null && tls == null) {
       throw new IllegalArgumentException(
           "submission requires tls: credentials are never accepted without TLS");
+    }
+    if (http != null && tls == null) {
+      throw new IllegalArgumentException(
+          "http requires tls: credentials are never accepted without TLS");
+    }
+    if (http != null && mode == Mode.PRODUCTION && !http.allowWithoutMfa()) {
+      throw new IllegalArgumentException(
+          "the HTTP API has no second factor yet; set http.allowWithoutMfa=true to run it anyway"
+              + " (see ADR 0013)");
     }
     if (outbound != null && submission == null) {
       throw new IllegalArgumentException("outbound.enabled requires a submission listener");
@@ -252,7 +282,8 @@ public record ShemConfig(
         smtp(p),
         submission(p),
         policy(p, base),
-        outbound(p));
+        outbound(p),
+        http(p));
   }
 
   private static @Nullable Tls tls(Properties p, Path base) {
@@ -309,6 +340,20 @@ public record ShemConfig(
         integer(p, "submission.maxConnectionsPerIp", 20),
         integer(p, "submission.maxRecipients", 100),
         integer(p, "submission.recipientsPerHour", 500));
+  }
+
+  private static @Nullable Http http(Properties p) {
+    String bind = p.getProperty("http.bind");
+    if (bind == null) {
+      return null;
+    }
+    String origin = p.getProperty("http.origin");
+    return new Http(
+        address(bind, "http.bind"),
+        origin == null || origin.isBlank() ? null : origin.strip(),
+        duration(p, "http.idleTimeout", Duration.ofMinutes(30)),
+        duration(p, "http.absoluteLifetime", Duration.ofHours(12)),
+        bool(p, "http.allowWithoutMfa", false));
   }
 
   private static @Nullable Outbound outbound(Properties p) {

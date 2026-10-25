@@ -270,6 +270,15 @@ class MailboxVerticalSliceTest {
           server.sessions.authenticate(
               "alice@example.org", appPassword, CLIENT, Capability.MAIL_ACCESS);
       assertThat(phone.principal().slotKind()).isEqualTo(SlotKind.APP);
+      assertThatThrownBy(
+              () -> server.sessions.authenticatePrimary("alice@example.org", appPassword, CLIENT))
+          .as("app passwords never open an API session")
+          .extracting(e -> ((AuthenticationException) e).reason())
+          .isEqualTo(AuthenticationException.Reason.INVALID);
+      try (MailboxLease web =
+          server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT)) {
+        assertThat(web.principal().can(Capability.KEY_ADMINISTRATION)).isTrue();
+      }
       assertThatThrownBy(() -> server.lifecycle.createAppPassword(phone, "nested"))
           .isInstanceOf(SecurityException.class);
       assertThat(server.lifecycle.slots(owner)).extracting(s -> s.label()).contains("phone");

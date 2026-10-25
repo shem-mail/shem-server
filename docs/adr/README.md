@@ -16,3 +16,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0010](0010-mail-policy.md) | Inbound mail policy: SPF/DKIM/DMARC, greylisting, literal rules, attachment checks | Accepted (scores untuned) |
 | [0011](0011-submission.md) | Authenticated submission (465/587); remote recipients via ADR 0012 | Accepted |
 | [0012](0012-outbound-delivery.md) | Plaintext outbound queue, MX delivery, MTA-STS, DSNs, DKIM signing | Accepted (no DANE) |
+| [0013](0013-http-api-sessions.md) | HTTP API: in-memory lease-backed sessions, self-service endpoints | Accepted (MFA, admin API pending) |

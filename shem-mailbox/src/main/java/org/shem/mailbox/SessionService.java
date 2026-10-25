@@ -67,6 +67,17 @@ public final class SessionService {
     return unlock(username, credential, source, kinds, selector.orElse(null), required);
   }
 
+  /**
+   * Web/API login: the primary password or a bootstrap password, never an app password, so a
+   * credential handed to a mail client cannot reach account management. The principal's
+   * capabilities decide what the session may do.
+   */
+  public MailboxLease authenticatePrimary(
+      String username, CharSequence credential, InetAddress source) throws AuthenticationException {
+    return unlock(
+        username, credential, source, List.of(SlotKind.PASSWORD, SlotKind.BOOTSTRAP), null, null);
+  }
+
   /** Authenticates with a recovery code; the lease may only replace the password. */
   public MailboxLease authenticateRecovery(String username, CharSequence code, InetAddress source)
       throws AuthenticationException {
@@ -108,7 +119,7 @@ public final class SessionService {
       InetAddress source,
       List<SlotKind> kinds,
       @Nullable String selector,
-      Capability required)
+      @Nullable Capability required)
       throws AuthenticationException {
     throttle(source);
     Optional<Account> account = identity.loginAccount(username);
@@ -152,7 +163,7 @@ public final class SessionService {
                 stored.slot().slotId(),
                 stored.slot().kind(),
                 Capability.forSlot(stored.slot().kind()));
-        if (!principal.can(required)) {
+        if (required != null && !principal.can(required)) {
           keyring.close();
           master.close();
           throw new AuthenticationException(AuthenticationException.Reason.NOT_PERMITTED, null);

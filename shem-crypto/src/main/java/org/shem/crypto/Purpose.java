@@ -16,7 +16,8 @@ public enum Purpose {
   METADATA_MANIFEST("metadata-manifest"),
   SEARCH_INDEX("search-index"),
   EXPORT("export"),
-  POLICY_FINGERPRINT("policy-fingerprint");
+  POLICY_FINGERPRINT("policy-fingerprint"),
+  SESSION_TOKEN("session-token");
 
   private final String label;
 

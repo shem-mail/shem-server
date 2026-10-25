@@ -25,6 +25,7 @@
     <module>shem-policy</module>
     <module>shem-outbound</module>
     <module>shem-smtp</module>
+    <module>shem-http</module>
     <module>shem-app</module>
   </modules>
 
@@ -145,6 +146,11 @@
       <dependency>
         <groupId>org.shem</groupId>
         <artifactId>shem-outbound</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-http</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

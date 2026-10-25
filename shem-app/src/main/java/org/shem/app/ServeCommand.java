@@ -11,6 +11,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
 import org.jspecify.annotations.Nullable;
+import org.shem.http.HttpRole;
+import org.shem.http.HttpSettings;
 import org.shem.imap.ImapRole;
 import org.shem.outbound.DkimSigning;
 import org.shem.outbound.OutboundDelivery;
@@ -51,8 +53,11 @@ final class ServeCommand {
   int run(CountDownLatch stop) throws Exception {
     ShemConfig.Tls tlsConfig = config.tls();
     if (tlsConfig == null
-        || (config.imap() == null && config.smtp() == null && config.submission() == null)) {
-      out.println("nothing to serve: configure tls.* and imap.*, smtp.*, or submission.*");
+        || (config.imap() == null
+            && config.smtp() == null
+            && config.submission() == null
+            && config.http() == null)) {
+      out.println("nothing to serve: configure tls.* and imap.*, smtp.*, submission.*, or http.*");
       return 2;
     }
     try (Services services = Services.start(config)) {
@@ -81,7 +86,11 @@ final class ServeCommand {
           InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor, dns);
           Outbound outbound = startOutbound(services, hostName, dns);
           SubmissionRole submission =
-              startSubmission(services, tls, hostName, outbound == null ? null : outbound.relay)) {
+              startSubmission(services, tls, hostName, outbound == null ? null : outbound.relay);
+          HttpRole http = startHttp(services, tls, hostName)) {
+        if (http != null) {
+          out.println("http api listening on port " + http.port());
+        }
         if (imap != null) {
           out.println("imap listening on port " + imap.port());
         }
@@ -183,6 +192,32 @@ final class ServeCommand {
             : null,
         tls,
         services.ids,
+        services.random,
+        services.clock);
+  }
+
+  private @Nullable HttpRole startHttp(Services services, ReloadableTlsContext tls, String hostName)
+      throws Exception {
+    ShemConfig.Http http = config.http();
+    if (http == null) {
+      return null;
+    }
+    String origin = http.origin();
+    return HttpRole.start(
+        new HttpSettings(
+            resolve(http.bind()),
+            origin == null ? "https://" + hostName : origin,
+            64,
+            64 * 1024,
+            10_000,
+            10,
+            http.idleTimeout(),
+            http.absoluteLifetime(),
+            Duration.ofMinutes(5)),
+        services.sessions,
+        services.lifecycle,
+        services.identity,
+        tls,
         services.random,
         services.clock);
   }
