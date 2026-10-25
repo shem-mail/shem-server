@@ -72,6 +72,28 @@
   <build>
     <plugins>
       <plugin>
+        <!-- Creates the integration tests' java.io.tmpdir (the JVM requires it to exist). -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>it-tmpdir</id>
+            <phase>pre-integration-test</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/it-tmp</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>src/it-tmp</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>

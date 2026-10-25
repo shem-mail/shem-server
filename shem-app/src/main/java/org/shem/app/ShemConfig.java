@@ -33,7 +33,8 @@ public record ShemConfig(
     Duration oldKeyRetention,
     boolean acceptMailBeforeEnrollment,
     @Nullable Tls tls,
-    @Nullable Imap imap) {
+    @Nullable Imap imap,
+    @Nullable Smtp smtp) {
 
   /** Listener certificate files (PEM) and the host names they must cover. */
   public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
@@ -47,6 +48,23 @@ public record ShemConfig(
 
   /** IMAP listener (implicit TLS). */
   public record Imap(InetSocketAddress bind, int maxConnections, int maxConnectionsPerIp) {}
+
+  /** Inbound MX listener (port 25, opportunistic STARTTLS). */
+  public record Smtp(
+      InetSocketAddress bind,
+      int maxConnections,
+      int maxConnectionsPerIp,
+      int maxRecipients,
+      int maxUnknownRecipients) {
+    public Smtp {
+      if (maxConnections <= 0 || maxConnectionsPerIp <= 0 || maxRecipients <= 0) {
+        throw new IllegalArgumentException("smtp limits must be positive");
+      }
+      if (maxUnknownRecipients < 0) {
+        throw new IllegalArgumentException("smtp.maxUnknownRecipients must not be negative");
+      }
+    }
+  }
 
   /** Deployment mode; production refuses development-only features. */
   public enum Mode {
@@ -74,7 +92,12 @@ public record ShemConfig(
           "tls.hostNames",
           "imap.bind",
           "imap.maxConnections",
-          "imap.maxConnectionsPerIp");
+          "imap.maxConnectionsPerIp",
+          "smtp.bind",
+          "smtp.maxConnections",
+          "smtp.maxConnectionsPerIp",
+          "smtp.maxRecipients",
+          "smtp.maxUnknownRecipients");
 
   public ShemConfig {
     if (mode == Mode.PRODUCTION && devBootstrapEnabled) {
@@ -92,6 +115,9 @@ public record ShemConfig(
     if (imap != null && tls == null) {
       throw new IllegalArgumentException(
           "imap requires tls: credentials are never accepted without TLS");
+    }
+    if (smtp != null && tls == null) {
+      throw new IllegalArgumentException("smtp requires tls: STARTTLS is always offered");
     }
   }
 
@@ -130,7 +156,8 @@ public record ShemConfig(
         duration(p, "keys.oldKeyRetention", Duration.ofMinutes(15)),
         bool(p, "delivery.acceptBeforeEnrollment", true),
         tls(p, base),
-        imap(p));
+        imap(p),
+        smtp(p));
   }
 
   private static @Nullable Tls tls(Properties p, Path base) {
@@ -159,6 +186,19 @@ public record ShemConfig(
         address(bind, "imap.bind"),
         integer(p, "imap.maxConnections", 500),
         integer(p, "imap.maxConnectionsPerIp", 20));
+  }
+
+  private static @Nullable Smtp smtp(Properties p) {
+    String bind = p.getProperty("smtp.bind");
+    if (bind == null) {
+      return null;
+    }
+    return new Smtp(
+        address(bind, "smtp.bind"),
+        integer(p, "smtp.maxConnections", 200),
+        integer(p, "smtp.maxConnectionsPerIp", 10),
+        integer(p, "smtp.maxRecipients", 100),
+        integer(p, "smtp.maxUnknownRecipients", 5));
   }
 
   /** {@code host:port}; IPv6 literals in brackets. */

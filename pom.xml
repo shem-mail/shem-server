@@ -22,6 +22,7 @@
     <module>shem-tls</module>
     <module>shem-search</module>
     <module>shem-imap</module>
+    <module>shem-smtp</module>
     <module>shem-app</module>
   </modules>
 
@@ -135,8 +136,25 @@
         <version>${project.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-smtp</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.apache.james.protocols</groupId>
         <artifactId>protocols-imap</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <!-- Command handlers and hooks only; never james-server-protocols-smtp, which brings the
+             mailet container, mail queue, and server distribution (ADR 0009). -->
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-smtp</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-netty</artifactId>
         <version>${james.version}</version>
       </dependency>
       <dependency>

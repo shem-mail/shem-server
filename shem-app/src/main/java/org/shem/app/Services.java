@@ -44,6 +44,9 @@ public final class Services implements AutoCloseable {
   public final KeyLifecycle lifecycle;
   public final SessionService sessions;
   public final MailboxProvisioning provisioning;
+  public final IdGenerator ids;
+  public final SecureRandom random;
+  public final Clock clock;
   private final ExecutorService background;
   private final ExecutorService indexing;
 
@@ -51,7 +54,9 @@ public final class Services implements AutoCloseable {
       throws IOException, FormatException {
     this.config = config;
     this.data = data;
-    IdGenerator ids = IdGenerator.secure(random);
+    this.random = random;
+    this.clock = clock;
+    this.ids = IdGenerator.secure(random);
     this.identity =
         IdentityService.open(
             data.routingFile(),

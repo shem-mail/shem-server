@@ -12,3 +12,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0006](0006-account-and-session-policies.md) | Locked-mailbox delivery, quota, bootstrap, app passwords, revocation policies | Proposed |
 | [0007](0007-process-roles.md) | Process roles and IPC | Open |
 | [0008](0008-search-index.md) | Encrypted Lucene trigram index as a conservative SEARCH filter | Accepted |
+| [0009](0009-inbound-smtp.md) | Inbound SMTP on James protocol handlers with Shem hooks | Accepted |

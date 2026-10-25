@@ -67,6 +67,49 @@ public final class EncryptedSpool implements MessageSource, AutoCloseable {
     sealed = true;
   }
 
+  /**
+   * Opens the spool for streaming writes of at most {@code maxBytes}; closing the returned stream
+   * seals the spool. Exceeding the limit throws {@link SpoolLimitIOException} and leaves the spool
+   * unsealed.
+   */
+  public OutputStream output(long maxBytes) throws IOException {
+    if (sealed) {
+      throw new IllegalStateException("spool already filled");
+    }
+    OutputStream encrypted;
+    try {
+      encrypted = cipher().encrypt(Files.newOutputStream(file, StandardOpenOption.WRITE), context);
+    } catch (CryptoException e) {
+      throw new IOException("spool encryption failed", e);
+    }
+    return new java.io.FilterOutputStream(encrypted) {
+      private boolean failed;
+
+      @Override
+      public void write(int b) throws IOException {
+        write(new byte[] {(byte) b}, 0, 1);
+      }
+
+      @Override
+      public void write(byte[] bytes, int offset, int length) throws IOException {
+        if (size + length > maxBytes) {
+          failed = true;
+          throw new SpoolLimitIOException();
+        }
+        out.write(bytes, offset, length);
+        size += length;
+      }
+
+      @Override
+      public void close() throws IOException {
+        super.close();
+        if (!failed) {
+          sealed = true;
+        }
+      }
+    };
+  }
+
   @Override
   public InputStream open() throws IOException {
     if (!sealed) {
@@ -92,6 +135,15 @@ public final class EncryptedSpool implements MessageSource, AutoCloseable {
   public void close() throws IOException {
     key.close();
     Files.deleteIfExists(file);
+  }
+
+  /** The streamed message exceeded the size limit given to {@link #output(long)}. */
+  public static final class SpoolLimitIOException extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    public SpoolLimitIOException() {
+      super("message exceeds size limit");
+    }
   }
 
   /** The message exceeded the configured size limit. */
