@@ -17,6 +17,7 @@
     <module>shem-crypto</module>
     <module>shem-identity</module>
     <module>shem-store</module>
+    <module>shem-delivery</module>
     <module>shem-app</module>
   </modules>
 
@@ -100,6 +101,11 @@
       <dependency>
         <groupId>org.shem</groupId>
         <artifactId>shem-store</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-delivery</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
