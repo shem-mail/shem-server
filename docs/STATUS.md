@@ -1,18 +1,18 @@
 # Implementation Status
 
-Last updated with mandatory MFA for the HTTP API (plan step 14). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
+Last updated with the admin API (plan step 14). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
 Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
 
 | Plan step | Module | State |
 | --- | --- | --- |
 | 1 Cryptography | `shem-crypto` | Implemented: profile 1, envelopes, streaming AEAD, slots, keyring, Argon2id admission. Tamper/truncation/reorder/substitution/wrong-key/nonce tests. |
-| 2 Identity | `shem-identity` | Implemented: domains, accounts, lifecycle, aliases (cycle detection, local-only targets), sender authorization, public-key cutover, quota ledger. Admin credentials/MFA not yet. |
+| 2 Identity | `shem-identity` | Implemented: domains, accounts, lifecycle, aliases (cycle detection, local-only targets), sender authorization, public-key cutover, quota ledger, administrator credentials with sealed TOTP ([ADR 0016](adr/0016-admin-api.md)). |
 | 3 Message store | `shem-store` | Implemented: immutable encrypted blobs, range reads, temp sweep, GC support. |
 | 4 Metadata store | `shem-store` | Implemented per [ADR 0004](adr/0004-metadata-store.md). |
 | 5 Sessions | `shem-mailbox` | Implemented: shared authenticator, dummy KDF, per-source limiter, leases/child leases, revocation, registry. MFA (HTTP) pending. |
 | 6 Delivery | `shem-delivery`, `shem-mailbox` | Implemented: locked delivery, receipts, idempotent import, enrollment, password/app/recovery slots, rotation with re-encryption, garbage collection. |
-| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, `serve` (TLS + IMAP and/or inbound SMTP), packaged jar + SBOM. |
+| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, offline `admin` command, `serve` (TLS + IMAP and/or inbound SMTP), packaged jar + SBOM. |
 | 7 Listener TLS | `shem-tls` | Implemented: PEM loading/validation (key match, hosts, validity, chain links), atomic hot reload, file watcher. |
 | 8 IMAP | `shem-imap` | Implemented per [ADR 0005](adr/0005-james-integration.md) with complete exact-evaluation SEARCH; validated with a real client (`ImapClientIT`). |
 | 9 Search index | `shem-search` | Implemented per [ADR 0008](adr/0008-search-index.md): encrypted Lucene Directory, trigram candidate filter verified against exact evaluation, rebuild on corruption/rotation. No benchmarks yet. |
@@ -20,7 +20,7 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | 11 Mail policy | `shem-policy` | Implemented per [ADR 0010](adr/0010-mail-policy.md): SPF (jSPF), DKIM (jDKIM, streaming), DMARC evaluation, Authentication-Results, in-memory greylisting, reloadable literal rules with GTUBE, attachment checks, Junk routing. No scanner integrations, ARC, or DMARC reports; scores untuned. |
 | 12 Submission | `shem-smtp` | Implemented per [ADR 0011](adr/0011-submission.md): 465/587, own AUTH PLAIN/LOGIN over the shared session path (TLS required), envelope and header sender authorization, local recipients only, per-account rate limit; validated with Jakarta Mail. |
 | 13 Outbound | `shem-outbound` | Implemented per [ADR 0012](adr/0012-outbound-delivery.md): durable plaintext queue (the documented exception), DKIM signing of queued bytes, MX/null-MX routing, retries/expiry, opportunistic STARTTLS, MTA-STS enforcement, DSNs via encrypted delivery. No DANE, TLSRPT, or real-MTA interoperability run. |
-| 14 HTTP API | `shem-http` | Partial per [ADR 0013](adr/0013-http-api-sessions.md): HTTPS server, lease-backed in-memory sessions, login/recovery/logout, `/me`, enrollment, password change, app passwords, recovery code, CSRF/Origin, step-up. Mandatory MFA (TOTP and WebAuthn) per [ADR 0014](adr/0014-mfa.md); mail clients use only generated app passwords per [ADR 0015](adr/0015-mail-client-credentials.md). Not yet: admin authentication and endpoints, exports, rotation jobs, OpenAPI. |
+| 14 HTTP API | `shem-http` | Partial per [ADR 0013](adr/0013-http-api-sessions.md): HTTPS server, lease-backed in-memory sessions, login/recovery/logout, `/me`, enrollment, password change, app passwords, recovery code, CSRF/Origin, step-up. Mandatory MFA (TOTP and WebAuthn) per [ADR 0014](adr/0014-mfa.md); mail clients use only generated app passwords per [ADR 0015](adr/0015-mail-client-credentials.md). Admin authentication (password + TOTP) and domain/account/alias/DKIM endpoints per [ADR 0016](adr/0016-admin-api.md). Not yet: exports, rotation jobs, OpenAPI, admin audit log, admin factor rotation over HTTP. |
 | 15–17 | — | Not started: ACME, extraction, operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

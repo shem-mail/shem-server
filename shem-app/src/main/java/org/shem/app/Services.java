@@ -16,6 +16,7 @@ import org.shem.crypto.Argon2Parameters;
 import org.shem.crypto.Argon2idKdf;
 import org.shem.crypto.KdfAdmission;
 import org.shem.delivery.DeliveryService;
+import org.shem.identity.AdminStore;
 import org.shem.identity.DeliveryPolicy;
 import org.shem.identity.IdentityService;
 import org.shem.identity.QuotaLedger;
@@ -45,6 +46,7 @@ public final class Services implements AutoCloseable {
   public final KeyLifecycle lifecycle;
   public final SessionService sessions;
   public final MailboxProvisioning provisioning;
+  public final AdminStore admins;
   public final IdGenerator ids;
   public final SecureRandom random;
   public final Clock clock;
@@ -129,6 +131,8 @@ public final class Services implements AutoCloseable {
     this.provisioning =
         new MailboxProvisioning(
             identity, paths, kdf, config.slotParameters(), metadataEnvironment, ids, random, clock);
+    this.admins =
+        AdminStore.open(data.adminFile(), kdf, config.slotParameters(), ids, random, clock);
     // Inbound SMTP prepends trace and policy fields to messages of up to message.maxBytes.
     this.delivery =
         new DeliveryService(

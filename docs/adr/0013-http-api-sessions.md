@@ -1,6 +1,6 @@
 # ADR 0013: HTTP API Sessions and Self-Service (Step 14, First Slice)
 
-Status: accepted for the self-service slice. MFA is decided in [ADR 0014](0014-mfa.md). Admin authentication and the admin endpoints, exports, key rotation jobs, and the OpenAPI contract are still open.
+Status: accepted for the self-service slice. MFA is decided in [ADR 0014](0014-mfa.md), admin authentication and endpoints in [ADR 0016](0016-admin-api.md). Exports, key rotation jobs, and the OpenAPI contract are still open.
 
 ## Decision
 
@@ -70,7 +70,7 @@ The following operations need a credential check within the last 5 minutes, othe
 ## Unresolved, recorded rather than weakened
 
 - **MFA:** superseded by [ADR 0014](0014-mfa.md). A second factor is mandatory, and the `http.allowWithoutMfa` opt-out has been removed.
-- **Admin side:** admin authentication, which must be separate from mailbox unlock, and the admin endpoints come next.
+- **Admin side:** implemented separately from mailbox unlock in [ADR 0016](0016-admin-api.md).
 - **Not yet built:** exports, rotation jobs, OpenAPI.
 - **JDK server limits:** the JDK server's own header and time limits are its defaults (`sun.net.httpserver.*`).
 

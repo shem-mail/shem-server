@@ -144,6 +144,20 @@ public final class DkimSigning {
     }
   }
 
+  /** The TXT value for an existing key, or empty when no key exists for the selector. */
+  public Optional<String> publishedRecord(String selector, String domain)
+      throws IOException, SigningException {
+    PrivateKey key = loadKey(keyFile(selector, domain));
+    if (key == null) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(txtRecord(key));
+    } catch (java.security.GeneralSecurityException e) {
+      throw new SigningException(e);
+    }
+  }
+
   /** The DNS TXT value publishing the public half of an RSA private key. */
   static String txtRecord(PrivateKey key) throws java.security.GeneralSecurityException {
     if (!(key instanceof RSAPrivateCrtKey crt)) {

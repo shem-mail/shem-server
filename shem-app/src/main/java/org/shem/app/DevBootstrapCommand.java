@@ -128,9 +128,14 @@ final class DevBootstrapCommand {
     return 0;
   }
 
+  private String readSecret(String prompt) throws IOException {
+    return readSecret(out, in, prompt);
+  }
+
+  /** Reads a secret from the terminal without echo, or a line from {@code in} without one. */
   // Null on JDK 21 without a terminal; on JDK 22+ a non-null console also serves piped input.
   @SuppressWarnings("SystemConsoleNull")
-  private String readSecret(String prompt) throws IOException {
+  static String readSecret(PrintStream out, BufferedReader in, String prompt) throws IOException {
     Console console = System.console();
     if (console != null) {
       char[] chars = console.readPassword("%s", prompt);

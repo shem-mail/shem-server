@@ -59,8 +59,9 @@ final class Api implements HttpHandler {
   private final IdentityService identity;
   private final Clock clock;
   private final WebAuthn webAuthn;
+  private final @Nullable AdminApi admin;
   private final java.security.SecureRandom random;
-  private final ObjectMapper json =
+  final ObjectMapper json =
       new ObjectMapper()
           .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
           .enable(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
@@ -72,8 +73,10 @@ final class Api implements HttpHandler {
       KeyLifecycle lifecycle,
       IdentityService identity,
       Clock clock,
-      java.security.SecureRandom random) {
+      java.security.SecureRandom random,
+      AdminApi.@Nullable Services adminServices) {
     this.webAuthn = new WebAuthn(settings.origin());
+    this.admin = adminServices == null ? null : new AdminApi(this, adminServices, clock, random);
     this.random = random;
     this.settings = settings;
     this.sessions = sessions;
@@ -83,8 +86,24 @@ final class Api implements HttpHandler {
     this.clock = clock;
   }
 
+  /** Expires idle admin sessions and challenges; mailbox sessions are swept by their store. */
+  void sweepAdmin() {
+    AdminApi admin = this.admin;
+    if (admin != null) {
+      admin.sweep();
+    }
+  }
+
+  /** Ends every admin session. */
+  void closeAdmin() {
+    AdminApi admin = this.admin;
+    if (admin != null) {
+      admin.close();
+    }
+  }
+
   /** One request's context. */
-  private final class Call {
+  final class Call {
     final HttpExchange exchange;
     final String method;
     final String path;
@@ -154,6 +173,14 @@ final class Api implements HttpHandler {
 
   private void route(Call c) throws ApiException, IOException {
     String p = c.path;
+    if (p.startsWith("/api/v1/admin/")) {
+      AdminApi admin = this.admin;
+      if (admin == null) {
+        throw new ApiException(404, "not found");
+      }
+      admin.route(c);
+      return;
+    }
     switch (p) {
       case "/healthz" -> {
         require(c, "GET");
@@ -744,17 +771,17 @@ final class Api implements HttpHandler {
     }
   }
 
-  private byte[] randomBytes() {
+  byte[] randomBytes() {
     byte[] bytes = new byte[32];
     random.nextBytes(bytes);
     return bytes;
   }
 
-  private static String b64(byte[] bytes) {
+  static String b64(byte[] bytes) {
     return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 
-  private static byte[] b64field(JsonNode node, String field) throws ApiException {
+  static byte[] b64field(JsonNode node, String field) throws ApiException {
     String value = string(node, field, 64 * 1024);
     try {
       return java.util.Base64.getUrlDecoder().decode(value);
@@ -848,13 +875,13 @@ final class Api implements HttpHandler {
     }
   }
 
-  private static void require(Call c, String method) throws ApiException {
+  static void require(Call c, String method) throws ApiException {
     if (!c.method.equals(method)) {
       throw new ApiException(405, "method not allowed");
     }
   }
 
-  private JsonNode body(Call c) throws ApiException, IOException {
+  JsonNode body(Call c) throws ApiException, IOException {
     String type = c.exchange.getRequestHeaders().getFirst("Content-Type");
     if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("application/json")) {
       throw new ApiException(415, "expected application/json");
@@ -879,7 +906,7 @@ final class Api implements HttpHandler {
     }
   }
 
-  private static String string(JsonNode body, String field, int maxLength) throws ApiException {
+  static String string(JsonNode body, String field, int maxLength) throws ApiException {
     JsonNode value = body.get(field);
     if (value == null || !value.isTextual()) {
       throw ApiException.badRequest(field + " is required");
@@ -891,7 +918,11 @@ final class Api implements HttpHandler {
     return text;
   }
 
-  private static @Nullable String cookie(Headers headers) {
+  static @Nullable String cookie(Headers headers) {
+    return cookie(headers, COOKIE);
+  }
+
+  static @Nullable String cookie(Headers headers, String name) {
     List<String> values = headers.get("Cookie");
     if (values == null) {
       return null;
@@ -900,8 +931,8 @@ final class Api implements HttpHandler {
     for (String header : values) {
       for (String part : header.split(";", -1)) {
         String p = part.strip();
-        if (p.startsWith(COOKIE + "=")) {
-          found.add(p.substring(COOKIE.length() + 1));
+        if (p.startsWith(name + "=")) {
+          found.add(p.substring(name.length() + 1));
         }
       }
     }
@@ -924,7 +955,7 @@ final class Api implements HttpHandler {
     h.set("Strict-Transport-Security", "max-age=31536000");
   }
 
-  private void send(HttpExchange exchange, int status, JsonNode body) throws IOException {
+  void send(HttpExchange exchange, int status, JsonNode body) throws IOException {
     byte[] bytes = json.writeValueAsBytes(body);
     exchange.getResponseHeaders().set("Content-Type", "application/json");
     exchange.sendResponseHeaders(status, bytes.length);
@@ -974,6 +1005,8 @@ final class Api implements HttpHandler {
       case 405 -> "Method Not Allowed";
       case 409 -> "Conflict";
       case 413 -> "Content Too Large";
+      case 412 -> "Precondition Failed";
+      case 428 -> "Precondition Required";
       case 415 -> "Unsupported Media Type";
       case 429 -> "Too Many Requests";
       case 503 -> "Service Unavailable";

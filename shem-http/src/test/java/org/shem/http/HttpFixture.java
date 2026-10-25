@@ -25,6 +25,7 @@ import org.shem.crypto.Argon2Parameters;
 import org.shem.crypto.Argon2idKdf;
 import org.shem.crypto.KdfAdmission;
 import org.shem.crypto.Secret;
+import org.shem.identity.AdminStore;
 import org.shem.identity.DeliveryPolicy;
 import org.shem.identity.EmailAddress;
 import org.shem.identity.IdentityService;
@@ -88,9 +89,36 @@ final class HttpFixture implements AutoCloseable {
   final SessionService sessions;
   final KeyLifecycle lifecycle;
   final MailboxProvisioning provisioning;
+  final AdminStore admins;
+  final FakeDkim dkim = new FakeDkim();
   final HttpRole http;
   final HttpClient client;
   final String base;
+
+  static final String ADMIN = "root";
+  static final String ADMIN_PASSWORD = "admin password that is long";
+
+  /** The administrator's TOTP secret (created at setup). */
+  final Secret adminTotp;
+
+  /** In-memory DKIM keys: the TXT value is derived from the selector. */
+  static final class FakeDkim implements DkimKeys {
+    final java.util.Map<String, String> keys = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @Override
+    public String generate(String selector, String domain) throws Exception {
+      String record = "v=DKIM1; k=rsa; p=" + selector;
+      if (keys.putIfAbsent(selector + "." + domain, record) != null) {
+        throw new java.nio.file.FileAlreadyExistsException(selector);
+      }
+      return record;
+    }
+
+    @Override
+    public java.util.Optional<String> publishedRecord(String selector, String domain) {
+      return java.util.Optional.ofNullable(keys.get(selector + "." + domain));
+    }
+  }
 
   /** Alice's TOTP secret (registered at setup). */
   final Secret aliceTotp = org.shem.crypto.Totp.generateSecret(RANDOM);
@@ -137,6 +165,8 @@ final class HttpFixture implements AutoCloseable {
             lifecycle,
             RANDOM);
     provisioning = new MailboxProvisioning(identity, paths, kdf, cheap, env, ids, RANDOM, clock);
+    admins = AdminStore.open(root.resolve("admin/admins.bin"), kdf, cheap, ids, RANDOM, clock);
+    adminTotp = admins.create(ADMIN, ADMIN_PASSWORD);
     identity.createDomain("example.org");
     String bootstrap = provision(ALICE);
     try (MailboxLease lease =
@@ -177,6 +207,8 @@ final class HttpFixture implements AutoCloseable {
             sessions,
             lifecycle,
             identity,
+            new AdminApi.Services(
+                admins, identity, provisioning, dkim, Duration.ofDays(1), "mx.example.org"),
             tls,
             RANDOM,
             clock);

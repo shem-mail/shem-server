@@ -114,6 +114,8 @@ class MtaStsAndDkimTest {
     assertThatThrownBy(() -> signing.generate("s2026", "example.org"))
         .as("no silent key replacement")
         .isInstanceOf(IOException.class);
+    assertThat(signing.publishedRecord("s2026", "example.org")).contains(record);
+    assertThat(signing.publishedRecord("other", "example.org")).isEmpty();
 
     byte[] message =
         "From: Alice <alice@example.org>\r\nTo: bob@example.net\r\nSubject: signed\r\nDate: Sun, 25 Oct 2026 10:00:00 +0000\r\n\r\nhello\r\n"

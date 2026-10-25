@@ -5,12 +5,15 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
 import org.jspecify.annotations.Nullable;
+import org.shem.http.AdminApi;
+import org.shem.http.DkimKeys;
 import org.shem.http.HttpRole;
 import org.shem.http.HttpSettings;
 import org.shem.imap.ImapRole;
@@ -217,9 +220,31 @@ final class ServeCommand {
         services.sessions,
         services.lifecycle,
         services.identity,
+        new AdminApi.Services(
+            services.admins,
+            services.identity,
+            services.provisioning,
+            dkimKeys(services),
+            config.bootstrapValidity(),
+            hostName),
         tls,
         services.random,
         services.clock);
+  }
+
+  private static DkimKeys dkimKeys(Services services) {
+    DkimSigning signing = new DkimSigning(services.data.dkimKeys(), services.identity);
+    return new DkimKeys() {
+      @Override
+      public String generate(String selector, String domain) throws Exception {
+        return signing.generate(selector, domain);
+      }
+
+      @Override
+      public Optional<String> publishedRecord(String selector, String domain) throws Exception {
+        return signing.publishedRecord(selector, domain);
+      }
+    };
   }
 
   /** The outbound queue, its delivery worker, and the submission relay using them. */

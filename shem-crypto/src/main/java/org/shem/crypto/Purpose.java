@@ -17,7 +17,8 @@ public enum Purpose {
   SEARCH_INDEX("search-index"),
   EXPORT("export"),
   POLICY_FINGERPRINT("policy-fingerprint"),
-  SESSION_TOKEN("session-token");
+  SESSION_TOKEN("session-token"),
+  ADMIN_FACTOR("admin-factor");
 
   private final String label;
 

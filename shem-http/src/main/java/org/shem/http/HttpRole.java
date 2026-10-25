@@ -11,6 +11,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLParameters;
+import org.jspecify.annotations.Nullable;
 import org.shem.identity.IdentityService;
 import org.shem.mailbox.KeyLifecycle;
 import org.shem.mailbox.SessionService;
@@ -26,16 +27,19 @@ public final class HttpRole implements AutoCloseable {
   private final ThreadPoolExecutor executor;
   private final ScheduledExecutorService sweeper;
   private final SessionStore sessions;
+  private final Api api;
 
   private HttpRole(
       HttpsServer server,
       ThreadPoolExecutor executor,
       ScheduledExecutorService sweeper,
-      SessionStore sessions) {
+      SessionStore sessions,
+      Api api) {
     this.server = server;
     this.executor = executor;
     this.sweeper = sweeper;
     this.sessions = sessions;
+    this.api = api;
   }
 
   public static HttpRole start(
@@ -43,6 +47,7 @@ public final class HttpRole implements AutoCloseable {
       SessionService auth,
       KeyLifecycle lifecycle,
       IdentityService identity,
+      AdminApi.@Nullable Services admin,
       ReloadableTlsContext tls,
       SecureRandom random,
       Clock clock)
@@ -58,8 +63,8 @@ public final class HttpRole implements AutoCloseable {
             params.setSSLParameters(parameters);
           }
         });
-    server.createContext(
-        "/", new Api(settings, sessions, auth, lifecycle, identity, clock, random));
+    Api api = new Api(settings, sessions, auth, lifecycle, identity, clock, random, admin);
+    server.createContext("/", api);
     ThreadPoolExecutor executor =
         new ThreadPoolExecutor(
             settings.maxConcurrentRequests(),
@@ -72,9 +77,17 @@ public final class HttpRole implements AutoCloseable {
     ScheduledExecutorService sweeper =
         Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().name("shem-http-sweeper").daemon(true).factory());
-    var unused = sweeper.scheduleWithFixedDelay(sessions::sweep, 30, 30, TimeUnit.SECONDS);
+    var unused =
+        sweeper.scheduleWithFixedDelay(
+            () -> {
+              sessions.sweep();
+              api.sweepAdmin();
+            },
+            30,
+            30,
+            TimeUnit.SECONDS);
     server.start();
-    return new HttpRole(server, executor, sweeper, sessions);
+    return new HttpRole(server, executor, sweeper, sessions, api);
   }
 
   public int port() {
@@ -91,5 +104,6 @@ public final class HttpRole implements AutoCloseable {
     sweeper.shutdownNow();
     executor.shutdownNow();
     sessions.close();
+    api.closeAdmin();
   }
 }

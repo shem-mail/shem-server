@@ -10,6 +10,7 @@ import java.util.List;
  * <pre>
  *   shem --config FILE serve          run the configured listeners
  *   shem --config FILE check          validate configuration and data directory
+ *   shem --config FILE admin ...      offline administrator management (see AdminCommand)
  *   shem --config FILE dev ...        local development bootstrap (see DevBootstrapCommand)
  * </pre>
  */
@@ -22,7 +23,7 @@ public final class Main {
 
   static int run(List<String> args) throws Exception {
     if (args.size() < 3 || !args.get(0).equals("--config")) {
-      System.out.println("usage: shem --config FILE <serve | check | dev ...>");
+      System.out.println("usage: shem --config FILE <serve | check | admin ... | dev ...>");
       return 2;
     }
     ShemConfig config;
@@ -48,6 +49,9 @@ public final class Main {
         Runtime.getRuntime().addShutdownHook(new Thread(stop::countDown, "shem-shutdown"));
         yield new ServeCommand(config, System.out).run(stop);
       }
+      case "admin" ->
+          new AdminCommand(config, System.out, DevBootstrapCommand.stdin())
+              .run(rest.subList(1, rest.size()));
       case "dev" ->
           new DevBootstrapCommand(config, System.out, DevBootstrapCommand.stdin())
               .run(rest.subList(1, rest.size()));

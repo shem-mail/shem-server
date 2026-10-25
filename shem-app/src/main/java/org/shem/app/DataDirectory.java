@@ -13,8 +13,9 @@ import org.shem.common.DurableFiles;
 /**
  * The server's data directory and its exclusive process lock. Layout: {@code routing/} (public
  * routing directory), {@code mailboxes/} (ciphertext only), {@code spool/} (ciphertext-only
- * provisional files), {@code queue/} (outbound plaintext queue, the documented exception), and
- * {@code dkim/} (server-wide DKIM signing keys).
+ * provisional files), {@code queue/} (outbound plaintext queue, the documented exception), {@code
+ * dkim/} (server-wide DKIM signing keys), and {@code admin/} (administrator credentials, no mailbox
+ * keys).
  */
 public final class DataDirectory implements AutoCloseable {
   private final Path root;
@@ -78,6 +79,10 @@ public final class DataDirectory implements AutoCloseable {
 
   public Path dkimKeys() {
     return root.resolve("dkim");
+  }
+
+  public Path adminFile() {
+    return root.resolve("admin").resolve("admins.bin");
   }
 
   @Override
