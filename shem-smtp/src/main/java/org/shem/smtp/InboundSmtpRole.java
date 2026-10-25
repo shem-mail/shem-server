@@ -27,10 +27,13 @@ import org.apache.james.protocols.smtp.core.UnknownCmdHandler;
 import org.apache.james.protocols.smtp.core.WelcomeMessageHandler;
 import org.apache.james.protocols.smtp.core.esmtp.EhloCmdHandler;
 import org.apache.james.protocols.smtp.core.esmtp.StartTlsCmdHandler;
+import org.jspecify.annotations.Nullable;
 import org.shem.common.DurableFiles;
 import org.shem.common.IdGenerator;
 import org.shem.delivery.DeliveryService;
 import org.shem.identity.IdentityService;
+import org.shem.policy.Greylist;
+import org.shem.policy.InboundPolicy;
 import org.shem.tls.ReloadableTlsContext;
 
 /**
@@ -39,6 +42,12 @@ import org.shem.tls.ReloadableTlsContext;
  */
 public final class InboundSmtpRole implements AutoCloseable {
   private static final String[] PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
+
+  /**
+   * Room above {@code message.maxBytes} that delivery must allow for the trace and policy fields
+   * this role prepends.
+   */
+  public static final long HEADER_ALLOWANCE = 64 * 1024;
 
   /** RFC 5321 allows 1000-octet lines; accept more from lenient senders, but stay bounded. */
   static final int MAX_LINE_BYTES = 8192;
@@ -55,6 +64,8 @@ public final class InboundSmtpRole implements AutoCloseable {
       InboundSettings settings,
       IdentityService identity,
       DeliveryService delivery,
+      InboundPolicy policy,
+      @Nullable Greylist greylist,
       ReloadableTlsContext tls,
       IdGenerator ids,
       SecureRandom random,
@@ -82,8 +93,12 @@ public final class InboundSmtpRole implements AutoCloseable {
             new TraceHeaders(settings.hostName(), clock),
             new DataLineMessageHookHandler(),
             new RecipientPolicy(
-                identity, settings.maxRecipients(), settings.maxUnknownRecipients(), metrics),
-            new DeliveryHook(delivery, ids, clock, metrics),
+                identity,
+                settings.maxRecipients(),
+                settings.maxUnknownRecipients(),
+                metrics,
+                greylist),
+            new DeliveryHook(delivery, policy, ids, clock, metrics),
             new EnvelopeCleanup());
     chain.addAll(handlers);
     chain.wireExtensibleHandlers();

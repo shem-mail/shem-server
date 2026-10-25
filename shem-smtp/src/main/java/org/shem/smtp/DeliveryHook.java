@@ -1,10 +1,12 @@
 package org.shem.smtp;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.james.core.MailAddress;
+import org.apache.james.protocols.api.ProtocolSession;
 import org.apache.james.protocols.smtp.MailEnvelope;
 import org.apache.james.protocols.smtp.SMTPRetCode;
 import org.apache.james.protocols.smtp.SMTPSession;
@@ -14,8 +16,11 @@ import org.apache.james.protocols.smtp.hook.MessageHook;
 import org.shem.common.IdGenerator;
 import org.shem.delivery.DeliveryRequest;
 import org.shem.delivery.DeliveryService;
+import org.shem.delivery.MessageSource;
 import org.shem.delivery.RecipientDelivery;
 import org.shem.delivery.RecipientOutcome;
+import org.shem.policy.HeaderRewriter;
+import org.shem.policy.InboundPolicy;
 import org.shem.store.DeliveryTarget;
 import org.shem.store.SpecialUse;
 
@@ -49,8 +54,15 @@ final class DeliveryHook implements MessageHook {
   private final IdGenerator ids;
   private final Clock clock;
   private final InboundMetrics metrics;
+  private final InboundPolicy policy;
 
-  DeliveryHook(DeliveryService delivery, IdGenerator ids, Clock clock, InboundMetrics metrics) {
+  DeliveryHook(
+      DeliveryService delivery,
+      InboundPolicy policy,
+      IdGenerator ids,
+      Clock clock,
+      InboundMetrics metrics) {
+    this.policy = policy;
     this.delivery = delivery;
     this.ids = ids;
     this.clock = clock;
@@ -96,29 +108,82 @@ final class DeliveryHook implements MessageHook {
     if (envelope.spooled()) {
       metrics.spooled.increment();
     }
+    String sender = envelope.getMaybeSender().asOptional().map(MailAddress::asString).orElse("");
+    InboundPolicy.Verdict verdict;
+    HeaderRewriter.Plan rewrite;
+    try {
+      verdict =
+          policy.evaluate(
+              new InboundPolicy.Envelope(
+                  session.getRemoteAddress().getAddress(),
+                  session
+                      .getAttachment(
+                          SMTPSession.CURRENT_HELO_NAME, ProtocolSession.State.Connection)
+                      .orElse(""),
+                  sender),
+              envelope::open);
+      try (InputStream original = envelope.open()) {
+        rewrite =
+            HeaderRewriter.plan(original, envelope.size(), verdict.fields(), policy::untrusted);
+      }
+    } catch (IOException | RuntimeException e) {
+      LOG.log(System.Logger.Level.ERROR, "policy failed: {0}", e.getClass().getSimpleName());
+      metrics.temporaryFailure.increment();
+      return TEMPORARY;
+    }
+    switch (verdict.action()) {
+      case REJECT -> {
+        metrics.policyRejected.increment();
+        return reply(HookReturnCode.deny(), verdict.reply());
+      }
+      case TEMPFAIL -> {
+        metrics.temporaryFailure.increment();
+        return reply(HookReturnCode.denySoft(), verdict.reply());
+      }
+      case JUNK -> metrics.junk.increment();
+      case DELIVER -> {}
+    }
+    SpecialUse folder =
+        verdict.action() == InboundPolicy.Action.JUNK ? SpecialUse.JUNK : SpecialUse.INBOX;
     List<RecipientDelivery> recipients = new ArrayList<>();
     for (Transactions.Recipients.Accepted a : accepted) {
       recipients.add(
           new RecipientDelivery(
               a.route(),
               a.address(),
-              new DeliveryTarget.Role(SpecialUse.INBOX),
+              new DeliveryTarget.Role(folder),
               0,
               List.of(),
-              List.of()));
+              verdict.tags()));
     }
-    String sender = envelope.getMaybeSender().asOptional().map(MailAddress::asString).orElse("");
+    MessageSource rewritten =
+        new MessageSource() {
+          @Override
+          public InputStream open() throws IOException {
+            return rewrite.apply(envelope.open());
+          }
+
+          @Override
+          public long size() {
+            return rewrite.size();
+          }
+        };
     List<RecipientOutcome> outcomes;
     try {
       outcomes =
           delivery.deliver(
-              new DeliveryRequest(ids.next(), recipients, envelope, clock.millis(), sender));
+              new DeliveryRequest(ids.next(), recipients, rewritten, clock.millis(), sender));
     } catch (RuntimeException e) {
       LOG.log(System.Logger.Level.ERROR, "delivery failed: {0}", e.getClass().getSimpleName());
       metrics.temporaryFailure.increment();
       return TEMPORARY;
     }
     return reply(outcomes);
+  }
+
+  /** A policy reply such as {@code "550 5.7.1 text"}. */
+  private static HookResult reply(HookReturnCode code, String reply) {
+    return result(code, reply.substring(0, 3), reply.substring(4));
   }
 
   private HookResult reply(List<RecipientOutcome> outcomes) {

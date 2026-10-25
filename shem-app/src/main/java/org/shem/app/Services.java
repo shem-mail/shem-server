@@ -25,6 +25,7 @@ import org.shem.mailbox.MailboxProvisioning;
 import org.shem.mailbox.MailboxRegistry;
 import org.shem.mailbox.SessionService;
 import org.shem.search.SearchIndexFactory;
+import org.shem.smtp.InboundSmtpRole;
 import org.shem.store.BlobStore;
 import org.shem.store.MailboxPaths;
 import org.shem.store.ReceiptStore;
@@ -128,7 +129,14 @@ public final class Services implements AutoCloseable {
     this.provisioning =
         new MailboxProvisioning(
             identity, paths, kdf, config.slotParameters(), metadataEnvironment, ids, random, clock);
-    this.delivery = new DeliveryService(blobs, receipts, quota, registry, config.maxMessageBytes());
+    // Inbound SMTP prepends trace and policy fields to messages of up to message.maxBytes.
+    this.delivery =
+        new DeliveryService(
+            blobs,
+            receipts,
+            quota,
+            registry,
+            config.maxMessageBytes() + InboundSmtpRole.HEADER_ALLOWANCE);
   }
 
   public static Services start(ShemConfig config) throws IOException, FormatException {

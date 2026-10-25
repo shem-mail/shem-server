@@ -13,3 +13,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0007](0007-process-roles.md) | Process roles and IPC | Open |
 | [0008](0008-search-index.md) | Encrypted Lucene trigram index as a conservative SEARCH filter | Accepted |
 | [0009](0009-inbound-smtp.md) | Inbound SMTP on James protocol handlers with Shem hooks | Accepted |
+| [0010](0010-mail-policy.md) | Inbound mail policy: SPF/DKIM/DMARC, greylisting, literal rules, attachment checks | Accepted (scores untuned) |

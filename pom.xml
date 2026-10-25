@@ -22,6 +22,7 @@
     <module>shem-tls</module>
     <module>shem-search</module>
     <module>shem-imap</module>
+    <module>shem-policy</module>
     <module>shem-smtp</module>
     <module>shem-app</module>
   </modules>
@@ -133,6 +134,11 @@
       <dependency>
         <groupId>org.shem</groupId>
         <artifactId>shem-imap</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-policy</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -277,6 +283,12 @@
         <groupId>org.apache.james.jspf</groupId>
         <artifactId>apache-jspf-resolver</artifactId>
         <version>${jspf.version}</version>
+      </dependency>
+      <dependency>
+        <!-- DNS for SPF/DKIM/DMARC; jSPF's own resolver is not used (ADR 0010). -->
+        <groupId>dnsjava</groupId>
+        <artifactId>dnsjava</artifactId>
+        <version>3.6.3</version>
       </dependency>
       <dependency>
         <groupId>org.apache.james.jdkim</groupId>

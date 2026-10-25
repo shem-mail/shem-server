@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.shem.store.PlaintextScan;
 
+@SuppressWarnings(
+    "StringConcatToTextBlock") // explicit CRLF line endings read better as concatenation
 class InboundSmtpIT {
   private static final String MARKER = "INBOUND-SMTP-MARKER";
   @TempDir Path dir;
@@ -73,8 +75,9 @@ class InboundSmtpIT {
     List<byte[]> inbox = fixture.aliceInbox();
     assertThat(inbox).hasSize(1);
     String delivered = text(inbox.getFirst());
+    assertThat(delivered).startsWith("Authentication-Results: localhost;");
     assertThat(delivered)
-        .startsWith("Return-Path: <bob@example.net>\r\nReceived: from mx.example.net ([");
+        .contains("\r\nReturn-Path: <bob@example.net>\r\nReceived: from mx.example.net ([");
     assertThat(delivered).contains("by localhost (Shem) with ESMTP;");
     assertThat(delivered).contains("\r\n\r\n.leading dot\r\nbody " + MARKER + "\r\n");
     assertThat(delivered).doesNotContain("for <");
@@ -270,6 +273,89 @@ class InboundSmtpIT {
       assertThat(client.last()).startsWith("221");
     }
     assertThat(fixture.aliceInbox()).hasSize(1);
+  }
+
+  @Test
+  void policyResultsAreRecordedAndForgedResultsRemoved() throws Exception {
+    fixture.dns.put("example.net/TXT", List.of("v=spf1 ip4:127.0.0.0/8 -all"));
+    String forged =
+        "Authentication-Results: localhost; spf=pass smtp.mailfrom=forged.example\r\n"
+            + "X-Spam-Flag: NO\r\n"
+            + message("forged", "body");
+    try (SmtpClient client = greeted()) {
+      client.command("EHLO mx.example.net");
+      assertThat(client.send("bob@example.net", List.of(SmtpFixture.ALICE), forged))
+          .startsWith("250");
+    }
+    String delivered = text(fixture.aliceInbox().getFirst());
+    assertThat(delivered).startsWith("Authentication-Results: localhost;");
+    assertThat(delivered).contains("spf=pass smtp.mailfrom=example.net");
+    assertThat(delivered).doesNotContain("forged.example");
+    assertThat(delivered.indexOf("X-Spam-Flag:")).isEqualTo(delivered.lastIndexOf("X-Spam-Flag:"));
+    assertThat(delivered).contains("X-Spam-Flag: NO");
+  }
+
+  @Test
+  void spamIsDeliveredToJunkNotRejected() throws Exception {
+    String gtube = "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X";
+    try (SmtpClient client = greeted()) {
+      client.command("EHLO mx.example.net");
+      assertThat(client.send("bob@example.net", List.of(SmtpFixture.ALICE), message("spam", gtube)))
+          .startsWith("250");
+    }
+    assertThat(fixture.aliceInbox()).isEmpty();
+    List<byte[]> junk = fixture.aliceFolder(org.shem.store.SpecialUse.JUNK);
+    assertThat(junk).hasSize(1);
+    assertThat(text(junk.getFirst())).contains("X-Spam-Flag: YES");
+    assertThat(fixture.smtp.metrics().junk()).isEqualTo(1);
+  }
+
+  @Test
+  void dmarcRejectAndDangerousAttachmentsAreRefusedBeforeDelivery() throws Exception {
+    fixture.dns.put("_dmarc.bank.example/TXT", List.of("v=DMARC1; p=reject"));
+    String spoofed =
+        "From: Bank <alerts@bank.example>\r\nTo: alice@example.org\r\nSubject: verify\r\n\r\nclick\r\n";
+    String attachment =
+        "From: bob@example.net\r\nSubject: invoice\r\nMIME-Version: 1.0\r\n"
+            + "Content-Type: multipart/mixed; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\n"
+            + "see attached\r\n--B\r\nContent-Type: application/octet-stream\r\n"
+            + "Content-Disposition: attachment; filename=\"invoice.pdf.exe\"\r\n\r\nTVo=\r\n--B--\r\n";
+    try (SmtpClient client = greeted()) {
+      client.command("EHLO mx.example.net");
+      assertThat(client.send("phisher@elsewhere.example", List.of(SmtpFixture.ALICE), spoofed))
+          .startsWith("550 5.7.1");
+      assertThat(client.send("bob@example.net", List.of(SmtpFixture.ALICE), attachment))
+          .startsWith("550 5.7.1");
+    }
+    assertThat(fixture.aliceInbox()).isEmpty();
+    assertThat(fixture.smtp.metrics().policyRejected()).isEqualTo(2);
+    assertSpoolEmpty();
+  }
+
+  @Test
+  void greylistingDefersTheFirstAttemptOnly(@TempDir Path other) throws Exception {
+    try (SmtpFixture greylisted =
+        new SmtpFixture(
+            other,
+            new org.shem.policy.Greylist.Settings(
+                java.time.Duration.ZERO,
+                java.time.Duration.ofHours(4),
+                java.time.Duration.ofDays(35),
+                1000))) {
+      try (SmtpClient client = greylisted.connect()) {
+        client.last();
+        client.command("EHLO mx.example.net");
+        client.command("MAIL FROM:<bob@example.net>");
+        assertThat(client.command("RCPT TO:<alice@example.org>")).startsWith("451 4.7.1");
+        assertThat(client.command("RCPT TO:<nobody@example.org>")).startsWith("550 5.1.1");
+        client.command("RSET");
+        assertThat(
+                client.send("bob@example.net", List.of(SmtpFixture.ALICE), message("retry", "x")))
+            .startsWith("250");
+      }
+      assertThat(greylisted.smtp.metrics().greylisted()).isEqualTo(1);
+      assertThat(greylisted.aliceInbox()).hasSize(1);
+    }
   }
 
   private long spoolFiles() throws Exception {

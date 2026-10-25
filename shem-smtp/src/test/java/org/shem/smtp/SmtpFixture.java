@@ -12,8 +12,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.jspecify.annotations.Nullable;
 import org.shem.common.FaultInjector;
 import org.shem.common.IdGenerator;
 import org.shem.crypto.Argon2Parameters;
@@ -32,6 +35,8 @@ import org.shem.mailbox.MailboxLease;
 import org.shem.mailbox.MailboxProvisioning;
 import org.shem.mailbox.MailboxRegistry;
 import org.shem.mailbox.SessionService;
+import org.shem.policy.Greylist;
+import org.shem.policy.InboundPolicy;
 import org.shem.store.BlobStore;
 import org.shem.store.MailboxPaths;
 import org.shem.store.ReceiptStore;
@@ -61,12 +66,19 @@ final class SmtpFixture implements AutoCloseable {
   final InboundSmtpRole smtp;
   final int port;
 
+  /** DNS answers for policy, keyed by {@code name/TYPE}; unlisted names do not exist. */
+  final Map<String, List<String>> dns = new ConcurrentHashMap<>();
+
   /** Set to make the next blob writes fail as if the disk were full. */
   volatile boolean diskFull;
 
   private final ExecutorService background = Executors.newFixedThreadPool(2);
 
   SmtpFixture(Path root) throws Exception {
+    this(root, null);
+  }
+
+  SmtpFixture(Path root, Greylist.@Nullable Settings greylisting) throws Exception {
     this.root = root;
     this.spool = root.resolve("spool");
     Clock clock = Clock.systemUTC();
@@ -160,6 +172,16 @@ final class SmtpFixture implements AutoCloseable {
                 spool),
             identity,
             delivery,
+            new InboundPolicy(
+                new InboundPolicy.Settings(
+                    HOST,
+                    5.0,
+                    InboundPolicy.Enforcement.REJECT,
+                    InboundPolicy.Enforcement.REJECT,
+                    List.of()),
+                (name, type) -> dns.getOrDefault(name + "/" + type, List.of()),
+                RANDOM),
+            greylisting == null ? null : new Greylist(greylisting, clock, RANDOM),
             tls,
             ids,
             RANDOM,
@@ -172,11 +194,20 @@ final class SmtpFixture implements AutoCloseable {
 
   /** Unlocks alice, imports pending receipts, and returns her INBOX messages in UID order. */
   List<byte[]> aliceInbox() throws Exception {
+    return aliceFolder(SpecialUse.INBOX);
+  }
+
+  /** Alice's messages in the folder with {@code role}; empty if it does not exist. */
+  List<byte[]> aliceFolder(SpecialUse role) throws Exception {
     try (MailboxLease lease =
         sessions.authenticate(
             ALICE, PASSWORD, InetAddress.getLoopbackAddress(), Capability.MAIL_ACCESS)) {
       lease.importPending(1000);
-      Folder inbox = lease.read(v -> v.folderByRole(SpecialUse.INBOX).orElseThrow());
+      java.util.Optional<Folder> folder = lease.read(v -> v.folderByRole(role));
+      if (folder.isEmpty()) {
+        return List.of();
+      }
+      Folder inbox = folder.get();
       List<MessageRecord> records = new ArrayList<>();
       lease.read(
           v -> {

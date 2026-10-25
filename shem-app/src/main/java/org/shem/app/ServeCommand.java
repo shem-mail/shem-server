@@ -3,10 +3,18 @@ package org.shem.app;
 import java.io.PrintStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.Nullable;
 import org.shem.imap.ImapRole;
+import org.shem.policy.DnsjavaResolver;
+import org.shem.policy.Greylist;
+import org.shem.policy.InboundPolicy;
+import org.shem.policy.RulesFile;
 import org.shem.smtp.InboundSettings;
 import org.shem.smtp.InboundSmtpRole;
 import org.shem.tls.CertificateWatcher;
@@ -18,6 +26,8 @@ import org.shem.tls.ReloadableTlsContext;
  * so every unlocked mailbox is locked again.
  */
 final class ServeCommand {
+  private static final System.Logger LOG = System.getLogger(ServeCommand.class.getName());
+
   /** Inbound messages larger than this are spooled to encrypted provisional files. */
   private static final int SMTP_MEMORY_THRESHOLD = 1 << 20;
 
@@ -50,8 +60,9 @@ final class ServeCommand {
                   tlsConfig.certificateChain(),
                   tlsConfig.privateKey(),
                   Duration.ofMinutes(1));
+          Timers timers = new Timers();
           ImapRole imap = startImap(services, tls, hostName);
-          InboundSmtpRole smtp = startSmtp(services, tls, hostName)) {
+          InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor)) {
         if (imap != null) {
           out.println("imap listening on port " + imap.port());
         }
@@ -84,10 +95,42 @@ final class ServeCommand {
   }
 
   private @Nullable InboundSmtpRole startSmtp(
-      Services services, ReloadableTlsContext tls, String hostName) throws Exception {
+      Services services, ReloadableTlsContext tls, String hostName, ScheduledExecutorService timers)
+      throws Exception {
     ShemConfig.Smtp smtp = config.smtp();
     if (smtp == null) {
       return null;
+    }
+    ShemConfig.Policy settings = config.policy();
+    InboundPolicy policy =
+        new InboundPolicy(
+            new InboundPolicy.Settings(
+                hostName,
+                settings.junkScore(),
+                settings.dmarcReject(),
+                settings.dangerousAttachments(),
+                settings.blocklists()),
+            new DnsjavaResolver(
+                settings.dnsServers(), settings.dnsTimeout(), 10_000, Duration.ofHours(1)),
+            services.random);
+    Path rulesPath = settings.rulesFile();
+    if (rulesPath != null) {
+      RulesFile rules = new RulesFile(rulesPath, policy);
+      rules.load();
+      // The task never throws; a failed reload is reported and the previous rules stay active.
+      var unused =
+          timers.scheduleWithFixedDelay(
+              () -> {
+                if (rules.reloadIfChanged() == RulesFile.Reload.REJECTED) {
+                  LOG.log(
+                      System.Logger.Level.WARNING,
+                      "rules reload rejected, keeping previous rules: {0}",
+                      rules.lastError());
+                }
+              },
+              1,
+              1,
+              TimeUnit.MINUTES);
     }
     return InboundSmtpRole.start(
         new InboundSettings(
@@ -103,10 +146,26 @@ final class ServeCommand {
             services.data.spool().resolve("inbound")),
         services.identity,
         services.delivery,
+        policy,
+        settings.greylist()
+            ? new Greylist(Greylist.Settings.DEFAULT, services.clock, services.random)
+            : null,
         tls,
         services.ids,
         services.random,
         services.clock);
+  }
+
+  /** Background timers (rules reload), stopped with the listeners. */
+  private static final class Timers implements AutoCloseable {
+    final ScheduledExecutorService executor =
+        Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().name("shem-timer").daemon(true).factory());
+
+    @Override
+    public void close() {
+      executor.shutdownNow();
+    }
   }
 
   private static InetSocketAddress resolve(InetSocketAddress unresolved) throws Exception {

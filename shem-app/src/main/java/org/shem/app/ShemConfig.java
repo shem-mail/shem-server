@@ -14,6 +14,7 @@ import java.util.Properties;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import org.shem.crypto.Argon2Parameters;
+import org.shem.policy.InboundPolicy;
 
 /**
  * Typed, validated runtime configuration loaded from a properties file. Unknown keys and invalid
@@ -34,7 +35,8 @@ public record ShemConfig(
     boolean acceptMailBeforeEnrollment,
     @Nullable Tls tls,
     @Nullable Imap imap,
-    @Nullable Smtp smtp) {
+    @Nullable Smtp smtp,
+    Policy policy) {
 
   /** Listener certificate files (PEM) and the host names they must cover. */
   public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
@@ -62,6 +64,33 @@ public record ShemConfig(
       }
       if (maxUnknownRecipients < 0) {
         throw new IllegalArgumentException("smtp.maxUnknownRecipients must not be negative");
+      }
+    }
+  }
+
+  /**
+   * Inbound mail policy (ADR 0010).
+   *
+   * @param dnsServers resolvers to query; empty means the system configuration
+   * @param blocklists DNS block list zones; each query reveals the client address to that zone
+   */
+  public record Policy(
+      double junkScore,
+      InboundPolicy.Enforcement dmarcReject,
+      InboundPolicy.Enforcement dangerousAttachments,
+      boolean greylist,
+      @Nullable Path rulesFile,
+      List<String> blocklists,
+      List<String> dnsServers,
+      Duration dnsTimeout) {
+    public Policy {
+      blocklists = List.copyOf(blocklists);
+      dnsServers = List.copyOf(dnsServers);
+      if (junkScore <= 0 || junkScore > 1000) {
+        throw new IllegalArgumentException("policy.junkScore out of range");
+      }
+      if (dnsTimeout.isNegative() || dnsTimeout.isZero() || dnsTimeout.toSeconds() > 30) {
+        throw new IllegalArgumentException("dns.timeout must be between 1ms and 30s");
       }
     }
   }
@@ -97,7 +126,15 @@ public record ShemConfig(
           "smtp.maxConnections",
           "smtp.maxConnectionsPerIp",
           "smtp.maxRecipients",
-          "smtp.maxUnknownRecipients");
+          "smtp.maxUnknownRecipients",
+          "policy.junkScore",
+          "policy.dmarcReject",
+          "policy.dangerousAttachments",
+          "policy.greylist",
+          "policy.rulesFile",
+          "policy.blocklists",
+          "dns.servers",
+          "dns.timeout");
 
   public ShemConfig {
     if (mode == Mode.PRODUCTION && devBootstrapEnabled) {
@@ -157,7 +194,8 @@ public record ShemConfig(
         bool(p, "delivery.acceptBeforeEnrollment", true),
         tls(p, base),
         imap(p),
-        smtp(p));
+        smtp(p),
+        policy(p, base));
   }
 
   private static @Nullable Tls tls(Properties p, Path base) {
@@ -199,6 +237,41 @@ public record ShemConfig(
         integer(p, "smtp.maxConnectionsPerIp", 10),
         integer(p, "smtp.maxRecipients", 100),
         integer(p, "smtp.maxUnknownRecipients", 5));
+  }
+
+  private static Policy policy(Properties p, Path base) {
+    String rules = p.getProperty("policy.rulesFile");
+    double junkScore;
+    try {
+      junkScore = Double.parseDouble(p.getProperty("policy.junkScore", "5.0").trim());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("policy.junkScore must be a number", e);
+    }
+    return new Policy(
+        junkScore,
+        enforcement(p, "policy.dmarcReject"),
+        enforcement(p, "policy.dangerousAttachments"),
+        bool(p, "policy.greylist", true),
+        rules == null || rules.isBlank() ? null : base.resolve(rules.trim()).normalize(),
+        list(p, "policy.blocklists"),
+        list(p, "dns.servers"),
+        duration(p, "dns.timeout", Duration.ofSeconds(3)));
+  }
+
+  private static InboundPolicy.Enforcement enforcement(Properties p, String key) {
+    String value = p.getProperty(key, "REJECT").trim().toUpperCase(java.util.Locale.ROOT);
+    try {
+      return InboundPolicy.Enforcement.valueOf(value);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(key + " must be REJECT, JUNK, or TAG", e);
+    }
+  }
+
+  private static List<String> list(Properties p, String key) {
+    return Arrays.stream(p.getProperty(key, "").split(",", -1))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .toList();
   }
 
   /** {@code host:port}; IPv6 literals in brackets. */

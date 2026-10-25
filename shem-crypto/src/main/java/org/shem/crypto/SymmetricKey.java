@@ -61,6 +61,24 @@ public final class SymmetricKey implements AutoCloseable {
     }
   }
 
+  /**
+   * Keyed 128-bit fingerprint (HMAC-SHA256 over the purpose label and data, truncated) for
+   * pseudonymous in-memory lookup keys. The JCE {@code Mac} keeps its own unwipeable copy of the
+   * key for the duration of the call.
+   */
+  public byte[] fingerprint(Purpose purpose, byte[] data) throws CryptoException {
+    try {
+      javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+      mac.init(new javax.crypto.spec.SecretKeySpec(key.bytes(), "HmacSHA256"));
+      mac.update(
+          new RecordWriter().string("shem/fingerprint/v1").string(purpose.label()).toByteArray());
+      mac.update(data);
+      return java.util.Arrays.copyOf(mac.doFinal(), 16);
+    } catch (GeneralSecurityException e) {
+      throw new CryptoException("fingerprint failed", e);
+    }
+  }
+
   /** Encrypts a record. Output: 12-byte nonce, ciphertext, 16-byte tag. */
   public byte[] seal(byte[] plaintext, AssociatedData context) throws CryptoException {
     try {

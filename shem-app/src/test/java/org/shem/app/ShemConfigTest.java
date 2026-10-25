@@ -60,4 +60,29 @@ class ShemConfigTest {
     assertThat(config.smtp()).isNull();
     assertThat(config.dataDirectory()).isEqualTo(Path.of("/srv/shem/data"));
   }
+
+  @Test
+  void policyDefaultsAndValidation() {
+    ShemConfig.Policy policy = ShemConfig.fromProperties(base(), BASE).policy();
+    assertThat(policy.junkScore()).isEqualTo(5.0);
+    assertThat(policy.dmarcReject()).isEqualTo(org.shem.policy.InboundPolicy.Enforcement.REJECT);
+    assertThat(policy.greylist()).isTrue();
+    assertThat(policy.blocklists()).isEmpty();
+    assertThat(policy.rulesFile()).isNull();
+
+    Properties p = base();
+    p.setProperty("policy.dangerousAttachments", "junk");
+    p.setProperty("policy.rulesFile", "rules/local.rules");
+    p.setProperty("policy.blocklists", "zen.example, ,bl.example");
+    ShemConfig.Policy custom = ShemConfig.fromProperties(p, BASE).policy();
+    assertThat(custom.dangerousAttachments())
+        .isEqualTo(org.shem.policy.InboundPolicy.Enforcement.JUNK);
+    assertThat(custom.rulesFile()).isEqualTo(Path.of("/srv/shem/rules/local.rules"));
+    assertThat(custom.blocklists()).containsExactly("zen.example", "bl.example");
+
+    Properties bad = base();
+    bad.setProperty("policy.dmarcReject", "ignore");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(bad, BASE))
+        .hasMessageContaining("policy.dmarcReject");
+  }
 }

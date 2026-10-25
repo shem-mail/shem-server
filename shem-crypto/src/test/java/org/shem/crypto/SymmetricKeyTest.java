@@ -69,4 +69,17 @@ class SymmetricKeyTest {
     assertThatThrownBy(secret::length).isInstanceOf(IllegalStateException.class);
     assertThat(secret.toString()).doesNotContain("0");
   }
+
+  @Test
+  void fingerprintsAreKeyedPurposeBoundAndDeterministic() throws Exception {
+    byte[] data = "198.51.100.0/24|a@example.net".getBytes(StandardCharsets.UTF_8);
+    try (SymmetricKey key = SymmetricKey.generate(TestKeys.RANDOM);
+        SymmetricKey other = SymmetricKey.generate(TestKeys.RANDOM)) {
+      byte[] first = key.fingerprint(Purpose.POLICY_FINGERPRINT, data);
+      assertThat(first).hasSize(16).isEqualTo(key.fingerprint(Purpose.POLICY_FINGERPRINT, data));
+      assertThat(other.fingerprint(Purpose.POLICY_FINGERPRINT, data)).isNotEqualTo(first);
+      assertThat(key.fingerprint(Purpose.EXPORT, data)).isNotEqualTo(first);
+      assertThat(key.fingerprint(Purpose.POLICY_FINGERPRINT, new byte[1])).isNotEqualTo(first);
+    }
+  }
 }

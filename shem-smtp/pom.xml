@@ -33,6 +33,10 @@
       <artifactId>shem-tls</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.shem</groupId>
+      <artifactId>shem-policy</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.apache.james.protocols</groupId>
       <artifactId>protocols-smtp</artifactId>
     </dependency>

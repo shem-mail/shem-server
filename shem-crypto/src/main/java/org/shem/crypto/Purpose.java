@@ -15,7 +15,8 @@ public enum Purpose {
   METADATA_SNAPSHOT("metadata-snapshot"),
   METADATA_MANIFEST("metadata-manifest"),
   SEARCH_INDEX("search-index"),
-  EXPORT("export");
+  EXPORT("export"),
+  POLICY_FINGERPRINT("policy-fingerprint");
 
   private final String label;
 

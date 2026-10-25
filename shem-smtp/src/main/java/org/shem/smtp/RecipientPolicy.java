@@ -9,10 +9,13 @@ import org.apache.james.protocols.smtp.SMTPSession;
 import org.apache.james.protocols.smtp.hook.HookResult;
 import org.apache.james.protocols.smtp.hook.HookReturnCode;
 import org.apache.james.protocols.smtp.hook.RcptHook;
+import org.jspecify.annotations.Nullable;
+import org.shem.crypto.CryptoException;
 import org.shem.identity.EmailAddress;
 import org.shem.identity.IdentityException;
 import org.shem.identity.IdentityService;
 import org.shem.identity.RecipientRoute;
+import org.shem.policy.Greylist;
 
 /**
  * Accepts a recipient only if it resolves to at least one accepting local mailbox. Never relays: a
@@ -41,6 +44,8 @@ final class RecipientPolicy implements RcptHook {
           HookReturnCode.disconnected(HookReturnCode.Action.DENYSOFT),
           SMTPRetCode.SERVICE_NOT_AVAILABLE,
           "4.7.0 Too many rejected recipients, closing connection");
+  private static final HookResult GREYLISTED =
+      deny(HookReturnCode.denySoft(), SMTPRetCode.LOCAL_ERROR, "4.7.1 Greylisted, try again later");
   private static final HookResult ACCEPTED =
       HookResult.builder()
           .hookReturnCode(HookReturnCode.ok())
@@ -52,12 +57,15 @@ final class RecipientPolicy implements RcptHook {
   private final int maxRecipients;
   private final int maxUnknownRecipients;
   private final InboundMetrics metrics;
+  private final @Nullable Greylist greylist;
 
   RecipientPolicy(
       IdentityService identity,
       int maxRecipients,
       int maxUnknownRecipients,
-      InboundMetrics metrics) {
+      InboundMetrics metrics,
+      @Nullable Greylist greylist) {
+    this.greylist = greylist;
     this.identity = identity;
     this.maxRecipients = maxRecipients;
     this.maxUnknownRecipients = maxUnknownRecipients;
@@ -107,7 +115,20 @@ final class RecipientPolicy implements RcptHook {
           Transactions.UNKNOWN_RECIPIENTS, unknown, ProtocolSession.State.Connection);
       return unknown > maxUnknownRecipients ? GOODBYE : UNKNOWN;
     }
-    recipients.add(address.localPart() + "@" + address.domain(), routes);
+    String canonical = address.localPart() + "@" + address.domain();
+    if (greylist != null) {
+      String from = sender.asOptional().map(MailAddress::asString).orElse("");
+      try {
+        if (!greylist.admit(session.getRemoteAddress().getAddress(), from, canonical)) {
+          metrics.greylisted.increment();
+          return GREYLISTED;
+        }
+      } catch (CryptoException e) {
+        metrics.temporaryFailure.increment();
+        return UNAVAILABLE;
+      }
+    }
+    recipients.add(canonical, routes);
     return ACCEPTED;
   }
 }
