@@ -54,6 +54,8 @@ public final class MailboxCoordinator {
   private Keyring keyring;
   private SymmetricKey masterKey;
   private boolean closed;
+  private final java.util.concurrent.CountDownLatch terminated =
+      new java.util.concurrent.CountDownLatch(1);
 
   MailboxCoordinator(
       OpaqueId mailboxId,
@@ -157,7 +159,13 @@ public final class MailboxCoordinator {
       keyLock.unlock();
       importLock.unlock();
       onClosed.accept(this);
+      terminated.countDown();
     }
+  }
+
+  /** Waits until a closing coordinator has released the metadata store and its keys. */
+  boolean awaitTerminated(java.time.Duration timeout) throws InterruptedException {
+    return terminated.await(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
   }
 
   // ---- extensions ----

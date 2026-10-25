@@ -42,6 +42,16 @@ final class TestMailServer implements AutoCloseable {
 
   TestMailServer(Path root, Clock clock, FaultInjector faults, Duration oldKeyRetention)
       throws Exception {
+    this(root, clock, faults, oldKeyRetention, java.util.List.of());
+  }
+
+  TestMailServer(
+      Path root,
+      Clock clock,
+      FaultInjector faults,
+      Duration oldKeyRetention,
+      java.util.List<MailboxExtensionFactory> extensions)
+      throws Exception {
     this.root = root;
     IdGenerator ids = IdGenerator.secure(RANDOM);
     paths = new MailboxPaths(root.resolve("mailboxes"));
@@ -61,7 +71,7 @@ final class TestMailServer implements AutoCloseable {
     registry =
         new MailboxRegistry(
             new MailboxRegistry.Dependencies(
-                paths, blobs, receipts, quota, identity, env, 10 << 20),
+                paths, blobs, receipts, quota, identity, env, 10 << 20, extensions, background),
             background);
     lifecycle =
         new KeyLifecycle(identity, registry, kdf, CHEAP, ids, RANDOM, clock, oldKeyRetention);

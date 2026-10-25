@@ -52,7 +52,6 @@
     <dependency>
       <groupId>org.shem</groupId>
       <artifactId>shem-mailbox</artifactId>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.shem</groupId>

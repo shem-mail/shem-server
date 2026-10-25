@@ -90,7 +90,7 @@ public final class InboundSmtpRole implements AutoCloseable {
             new UnknownCmdHandler(timers),
             new WelcomeMessageHandler(),
             new SizeLimit(settings.maxMessageBytes(), metrics),
-            new TraceHeaders(settings.hostName(), clock),
+            new TraceHeaders(settings.hostName(), clock, false),
             new DataLineMessageHookHandler(),
             new RecipientPolicy(
                 identity,

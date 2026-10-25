@@ -21,10 +21,16 @@ final class TraceHeaders extends ReceivedDataLineFilter {
       DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US);
   private final String hostName;
   private final Clock clock;
+  private final boolean submission;
 
-  TraceHeaders(String hostName, Clock clock) {
+  /**
+   * {@code submission} omits the client's host and address (users' IP addresses are not disclosed
+   * to recipients) and records the authenticated protocol.
+   */
+  TraceHeaders(String hostName, Clock clock, boolean submission) {
     this.hostName = hostName;
     this.clock = clock;
+    this.submission = submission;
   }
 
   @Override
@@ -43,6 +49,11 @@ final class TraceHeaders extends ReceivedDataLineFilter {
             .getAttachment(SMTPSession.CURRENT_HELO_MODE, ProtocolSession.State.Connection)
             .filter("EHLO"::equals)
             .isPresent();
+    if (submission) {
+      Header received = new Header("Received", "by " + hostName + " (Shem) with ESMTPSA;");
+      received.add(DATE.format(ZonedDateTime.now(clock)));
+      return List.of(new Header("Return-Path", "<" + sender + ">"), received);
+    }
     String protocol = !ehlo ? "SMTP" : session.isTLSStarted() ? "ESMTPS" : "ESMTP";
     Header received =
         new Header(

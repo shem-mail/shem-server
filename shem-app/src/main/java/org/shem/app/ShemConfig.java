@@ -36,6 +36,7 @@ public record ShemConfig(
     @Nullable Tls tls,
     @Nullable Imap imap,
     @Nullable Smtp smtp,
+    @Nullable Submission submission,
     Policy policy) {
 
   /** Listener certificate files (PEM) and the host names they must cover. */
@@ -64,6 +65,32 @@ public record ShemConfig(
       }
       if (maxUnknownRecipients < 0) {
         throw new IllegalArgumentException("smtp.maxUnknownRecipients must not be negative");
+      }
+    }
+  }
+
+  /**
+   * Authenticated submission listeners (ADR 0011).
+   *
+   * @param implicitTlsBind port 465 listener, if any
+   * @param startTlsBind port 587 listener, if any
+   */
+  public record Submission(
+      @Nullable InetSocketAddress implicitTlsBind,
+      @Nullable InetSocketAddress startTlsBind,
+      int maxConnections,
+      int maxConnectionsPerIp,
+      int maxRecipients,
+      int recipientsPerHour) {
+    public Submission {
+      if (implicitTlsBind == null && startTlsBind == null) {
+        throw new IllegalArgumentException("submission needs implicitTlsBind or startTlsBind");
+      }
+      if (maxConnections <= 0
+          || maxConnectionsPerIp <= 0
+          || maxRecipients <= 0
+          || recipientsPerHour <= 0) {
+        throw new IllegalArgumentException("submission limits must be positive");
       }
     }
   }
@@ -127,6 +154,12 @@ public record ShemConfig(
           "smtp.maxConnectionsPerIp",
           "smtp.maxRecipients",
           "smtp.maxUnknownRecipients",
+          "submission.implicitTlsBind",
+          "submission.startTlsBind",
+          "submission.maxConnections",
+          "submission.maxConnectionsPerIp",
+          "submission.maxRecipients",
+          "submission.recipientsPerHour",
           "policy.junkScore",
           "policy.dmarcReject",
           "policy.dangerousAttachments",
@@ -152,6 +185,10 @@ public record ShemConfig(
     if (imap != null && tls == null) {
       throw new IllegalArgumentException(
           "imap requires tls: credentials are never accepted without TLS");
+    }
+    if (submission != null && tls == null) {
+      throw new IllegalArgumentException(
+          "submission requires tls: credentials are never accepted without TLS");
     }
     if (smtp != null && tls == null) {
       throw new IllegalArgumentException("smtp requires tls: STARTTLS is always offered");
@@ -195,6 +232,7 @@ public record ShemConfig(
         tls(p, base),
         imap(p),
         smtp(p),
+        submission(p),
         policy(p, base));
   }
 
@@ -237,6 +275,21 @@ public record ShemConfig(
         integer(p, "smtp.maxConnectionsPerIp", 10),
         integer(p, "smtp.maxRecipients", 100),
         integer(p, "smtp.maxUnknownRecipients", 5));
+  }
+
+  private static @Nullable Submission submission(Properties p) {
+    String implicit = p.getProperty("submission.implicitTlsBind");
+    String starttls = p.getProperty("submission.startTlsBind");
+    if (implicit == null && starttls == null) {
+      return null;
+    }
+    return new Submission(
+        implicit == null ? null : address(implicit, "submission.implicitTlsBind"),
+        starttls == null ? null : address(starttls, "submission.startTlsBind"),
+        integer(p, "submission.maxConnections", 200),
+        integer(p, "submission.maxConnectionsPerIp", 20),
+        integer(p, "submission.maxRecipients", 100),
+        integer(p, "submission.recipientsPerHour", 500));
   }
 
   private static Policy policy(Properties p, Path base) {

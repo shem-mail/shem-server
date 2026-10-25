@@ -85,4 +85,20 @@ class ShemConfigTest {
     assertThatThrownBy(() -> ShemConfig.fromProperties(bad, BASE))
         .hasMessageContaining("policy.dmarcReject");
   }
+
+  @Test
+  void submissionListenersRequireTls() {
+    Properties p = withTls();
+    p.setProperty("submission.startTlsBind", "0.0.0.0:587");
+    ShemConfig.Submission submission =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).submission());
+    assertThat(submission.implicitTlsBind()).isNull();
+    assertThat(java.util.Objects.requireNonNull(submission.startTlsBind()).getPort())
+        .isEqualTo(587);
+    assertThat(submission.recipientsPerHour()).isEqualTo(500);
+    Properties noTls = base();
+    noTls.setProperty("submission.implicitTlsBind", "0.0.0.0:465");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(noTls, BASE))
+        .hasMessageContaining("submission requires tls");
+  }
 }

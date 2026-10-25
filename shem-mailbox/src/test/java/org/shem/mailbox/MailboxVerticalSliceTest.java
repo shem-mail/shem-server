@@ -417,6 +417,73 @@ class MailboxVerticalSliceTest {
     assertThat(server.registry.isUnlocked(alice.mailboxId())).isFalse();
   }
 
+  /** An extension whose close blocks until released, holding the coordinator in shutdown. */
+  private static final class SlowClose implements MailboxExtensionFactory, MailboxExtension {
+    final java.util.concurrent.CountDownLatch closing = new java.util.concurrent.CountDownLatch(1);
+    final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+
+    @Override
+    public Class<? extends MailboxExtension> type() {
+      return SlowClose.class;
+    }
+
+    @Override
+    public MailboxExtension open(ExtensionContext context) {
+      return this;
+    }
+
+    @Override
+    public void close() {
+      closing.countDown();
+      try {
+        release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  @Test
+  void loginWhileTheLastSessionIsClosingWaitsForShutdown(@TempDir Path other) throws Exception {
+    SlowClose slow = new SlowClose();
+    try (TestMailServer slowServer =
+        new TestMailServer(
+            other, Clock.systemUTC(), FaultInjector.NONE, Duration.ZERO, List.of(slow))) {
+      slowServer.identity.createDomain("example.org");
+      MailboxProvisioning.Provisioned provisioned =
+          slowServer.provisioning.provision(
+              EmailAddress.parse("alice@example.org"), 0, Duration.ofDays(1));
+      String code;
+      try (Secret secret = provisioned.bootstrapPassword()) {
+        code = new String(secret.exposeCopy(), StandardCharsets.UTF_8);
+      }
+      MailboxLease first =
+          slowServer.sessions.authenticate("alice@example.org", code, CLIENT, Capability.ENROLL);
+      Thread closer = Thread.ofPlatform().start(first::close);
+      assertThat(slow.closing.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      // The coordinator is closing and its metadata store is still open: a login now must wait.
+      Thread releaser =
+          Thread.ofPlatform()
+              .start(
+                  () -> {
+                    try {
+                      Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                    }
+                    slow.release.countDown();
+                  });
+      try (MailboxLease next =
+          slowServer.sessions.authenticate("alice@example.org", code, CLIENT, Capability.ENROLL)) {
+        assertThat(next.isValid()).isTrue();
+      } finally {
+        slow.release.countDown();
+        closer.join();
+        releaser.join();
+      }
+    }
+  }
+
   @Test
   void garbageCollectionRemovesOnlyUnreferencedBlobs() throws Exception {
     try (MailboxLease lease = enroll()) {

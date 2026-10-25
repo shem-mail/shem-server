@@ -17,6 +17,8 @@ import org.shem.policy.InboundPolicy;
 import org.shem.policy.RulesFile;
 import org.shem.smtp.InboundSettings;
 import org.shem.smtp.InboundSmtpRole;
+import org.shem.smtp.SubmissionRole;
+import org.shem.smtp.SubmissionSettings;
 import org.shem.tls.CertificateWatcher;
 import org.shem.tls.ReloadableTlsContext;
 
@@ -42,8 +44,9 @@ final class ServeCommand {
   @SuppressWarnings("try") // the watcher only needs to live as long as the listeners
   int run(CountDownLatch stop) throws Exception {
     ShemConfig.Tls tlsConfig = config.tls();
-    if (tlsConfig == null || (config.imap() == null && config.smtp() == null)) {
-      out.println("nothing to serve: configure tls.* and imap.bind and/or smtp.bind");
+    if (tlsConfig == null
+        || (config.imap() == null && config.smtp() == null && config.submission() == null)) {
+      out.println("nothing to serve: configure tls.* and imap.*, smtp.*, or submission.*");
       return 2;
     }
     try (Services services = Services.start(config)) {
@@ -62,12 +65,22 @@ final class ServeCommand {
                   Duration.ofMinutes(1));
           Timers timers = new Timers();
           ImapRole imap = startImap(services, tls, hostName);
-          InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor)) {
+          InboundSmtpRole smtp = startSmtp(services, tls, hostName, timers.executor);
+          SubmissionRole submission = startSubmission(services, tls, hostName)) {
         if (imap != null) {
           out.println("imap listening on port " + imap.port());
         }
         if (smtp != null) {
           out.println("smtp listening on port " + smtp.port());
+        }
+        if (submission != null) {
+          if (submission.implicitTlsPort() > 0) {
+            out.println(
+                "submission (implicit TLS) listening on port " + submission.implicitTlsPort());
+          }
+          if (submission.startTlsPort() > 0) {
+            out.println("submission (STARTTLS) listening on port " + submission.startTlsPort());
+          }
         }
         stop.await();
         out.println("shutting down");
@@ -150,6 +163,36 @@ final class ServeCommand {
         settings.greylist()
             ? new Greylist(Greylist.Settings.DEFAULT, services.clock, services.random)
             : null,
+        tls,
+        services.ids,
+        services.random,
+        services.clock);
+  }
+
+  private @Nullable SubmissionRole startSubmission(
+      Services services, ReloadableTlsContext tls, String hostName) throws Exception {
+    ShemConfig.Submission submission = config.submission();
+    if (submission == null) {
+      return null;
+    }
+    InetSocketAddress implicit = submission.implicitTlsBind();
+    InetSocketAddress starttls = submission.startTlsBind();
+    return SubmissionRole.start(
+        new SubmissionSettings(
+            implicit == null ? null : resolve(implicit),
+            starttls == null ? null : resolve(starttls),
+            hostName,
+            submission.maxConnections(),
+            submission.maxConnectionsPerIp(),
+            300,
+            config.maxMessageBytes(),
+            SMTP_MEMORY_THRESHOLD,
+            submission.maxRecipients(),
+            submission.recipientsPerHour(),
+            services.data.spool().resolve("submission")),
+        services.sessions,
+        services.identity,
+        services.delivery,
         tls,
         services.ids,
         services.random,

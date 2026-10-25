@@ -64,6 +64,7 @@ final class SmtpFixture implements AutoCloseable {
   final SessionService sessions;
   final TestCertificates.Files2 certificate;
   final InboundSmtpRole smtp;
+  final SubmissionRole submission;
   final int port;
 
   /** DNS answers for policy, keyed by {@code name/TYPE}; unlisted names do not exist. */
@@ -148,6 +149,10 @@ final class SmtpFixture implements AutoCloseable {
         EmailAddress.parse("team@example.org"),
         List.of(EmailAddress.parse(ALICE), EmailAddress.parse(CAROL)),
         List.of());
+    identity.createAlias(
+        EmailAddress.parse("sales@example.org"),
+        List.of(EmailAddress.parse(ALICE)),
+        List.of(alice.account().mailboxId()));
 
     certificate =
         TestCertificates.write(
@@ -186,6 +191,47 @@ final class SmtpFixture implements AutoCloseable {
             ids,
             RANDOM,
             clock);
+    submission =
+        SubmissionRole.start(
+            new SubmissionSettings(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), freePort()),
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), freePort()),
+                HOST,
+                20,
+                10,
+                300,
+                MAX_MESSAGE,
+                MEMORY_THRESHOLD,
+                5,
+                8,
+                root.resolve("submission-spool")),
+            sessions,
+            identity,
+            delivery,
+            tls,
+            ids,
+            RANDOM,
+            clock);
+  }
+
+  private static int freePort() throws IOException {
+    try (ServerSocket probe = new ServerSocket(0)) {
+      return probe.getLocalPort();
+    }
+  }
+
+  SmtpClient submissionStartTls() throws Exception {
+    return new SmtpClient(
+        submission.startTlsPort(), TestCertificates.clientTrusting(certificate.certificate()));
+  }
+
+  SmtpClient submissionImplicitTls() throws Exception {
+    SmtpClient client =
+        new SmtpClient(
+            submission.implicitTlsPort(),
+            TestCertificates.clientTrusting(certificate.certificate()));
+    client.startTls();
+    return client;
   }
 
   SmtpClient connect() throws Exception {
@@ -226,6 +272,7 @@ final class SmtpFixture implements AutoCloseable {
 
   @Override
   public void close() {
+    submission.close();
     smtp.close();
     registry.close();
     background.shutdownNow();

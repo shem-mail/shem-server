@@ -27,6 +27,7 @@ import org.shem.store.metadata.MetadataStore;
 public final class MailboxRegistry implements DeliveryListener, AutoCloseable {
   private static final System.Logger LOG = System.getLogger(MailboxRegistry.class.getName());
   static final int SYNCHRONOUS_IMPORT_LIMIT = 500;
+  private static final java.time.Duration SHUTDOWN_WAIT = java.time.Duration.ofSeconds(30);
   static final int BACKGROUND_IMPORT_BATCH = 200;
 
   /** Collaborators shared by all coordinators. */
@@ -104,6 +105,8 @@ public final class MailboxRegistry implements DeliveryListener, AutoCloseable {
           masterKey.close();
           return lease;
         }
+        // The last session is closing on another thread; its metadata store is still open.
+        awaitShutdown(existing, keyring, masterKey);
       }
       MetadataStore metadata;
       try {
@@ -136,6 +139,22 @@ public final class MailboxRegistry implements DeliveryListener, AutoCloseable {
         throw e;
       }
       return lease;
+    }
+  }
+
+  private static void awaitShutdown(
+      MailboxCoordinator closing, Keyring keyring, SymmetricKey masterKey) throws StorageException {
+    boolean done;
+    try {
+      done = closing.awaitTerminated(SHUTDOWN_WAIT);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      done = false;
+    }
+    if (!done) {
+      keyring.close();
+      masterKey.close();
+      throw new StorageException(StorageException.Kind.UNAVAILABLE, "mailbox is still closing");
     }
   }
 
