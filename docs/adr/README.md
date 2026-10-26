@@ -20,3 +20,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0014](0014-mfa.md) | Mandatory second factor: TOTP and WebAuthn, stored in the sealed keyring | Accepted |
 | [0015](0015-mail-client-credentials.md) | IMAP/SMTP accept only system-generated app passwords, never the main password | Accepted |
 | [0016](0016-admin-api.md) | Independent admin credentials with mandatory TOTP; admin API without mail or key access | Accepted |
+| [0017](0017-exports-jobs-openapi.md) | Streaming plaintext export, key rotation jobs, self-deletion, OpenAPI contract | Accepted (encrypted export open) |

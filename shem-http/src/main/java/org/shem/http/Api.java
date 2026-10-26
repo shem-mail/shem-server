@@ -31,6 +31,8 @@ import org.shem.crypto.Secret;
 import org.shem.crypto.SlotDescriptor;
 import org.shem.crypto.SlotKind;
 import org.shem.identity.Account;
+import org.shem.identity.AccountState;
+import org.shem.identity.IdentityException;
 import org.shem.identity.IdentityService;
 import org.shem.mailbox.AuthenticationException;
 import org.shem.mailbox.Capability;
@@ -51,6 +53,8 @@ final class Api implements HttpHandler {
   private static final int MAX_USERNAME = 320;
   private static final int MAX_SECRET = 1024;
   private static final int MAX_LABEL = 64;
+  static final Duration EXPORT_TICKET = Duration.ofMinutes(5);
+  static final int MAX_EXPORTS = 2;
 
   private final HttpSettings settings;
   private final SessionStore sessions;
@@ -61,6 +65,10 @@ final class Api implements HttpHandler {
   private final WebAuthn webAuthn;
   private final @Nullable AdminApi admin;
   private final java.security.SecureRandom random;
+  private final Jobs jobs;
+  private final org.shem.common.ImmutableBytes openApi = loadOpenApi();
+  private final java.util.concurrent.Semaphore exports =
+      new java.util.concurrent.Semaphore(MAX_EXPORTS);
   final ObjectMapper json =
       new ObjectMapper()
           .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -78,6 +86,7 @@ final class Api implements HttpHandler {
     this.webAuthn = new WebAuthn(settings.origin());
     this.admin = adminServices == null ? null : new AdminApi(this, adminServices, clock, random);
     this.random = random;
+    this.jobs = new Jobs(clock, random);
     this.settings = settings;
     this.sessions = sessions;
     this.auth = auth;
@@ -86,19 +95,35 @@ final class Api implements HttpHandler {
     this.clock = clock;
   }
 
-  /** Expires idle admin sessions and challenges; mailbox sessions are swept by their store. */
-  void sweepAdmin() {
+  /**
+   * Expires admin sessions, challenges, and old jobs; mailbox sessions are swept by their store.
+   */
+  void sweep() {
+    jobs.sweep();
     AdminApi admin = this.admin;
     if (admin != null) {
       admin.sweep();
     }
   }
 
-  /** Ends every admin session. */
-  void closeAdmin() {
+  /** Stops background jobs and ends every admin session. */
+  void close() {
+    jobs.close();
     AdminApi admin = this.admin;
     if (admin != null) {
       admin.close();
+    }
+  }
+
+  /** The published contract, {@code openapi.json} next to this class. */
+  static org.shem.common.ImmutableBytes loadOpenApi() {
+    try (InputStream in = Api.class.getResourceAsStream("openapi.json")) {
+      if (in == null) {
+        throw new IllegalStateException("openapi.json missing from the build");
+      }
+      return org.shem.common.ImmutableBytes.copyOf(in.readAllBytes());
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -156,7 +181,8 @@ final class Api implements HttpHandler {
 
   @Override
   public void handle(HttpExchange exchange) throws IOException {
-    try (exchange) {
+    boolean aborted = false;
+    try {
       securityHeaders(exchange.getResponseHeaders());
       Call call = new Call(exchange);
       try {
@@ -168,6 +194,26 @@ final class Api implements HttpHandler {
         LOG.log(System.Logger.Level.ERROR, "request failed: {0}", e.getClass().getSimpleName());
         problem(exchange, 500, "internal error", null);
       }
+    } catch (AbortedResponse e) {
+      aborted = true;
+      throw e;
+    } finally {
+      if (!aborted) {
+        exchange.close();
+      }
+    }
+  }
+
+  /**
+   * A streamed response failed after its headers were sent. Propagating it without closing the
+   * exchange makes the server drop the connection, so the client sees a broken transfer rather than
+   * a cleanly terminated (and silently truncated) body.
+   */
+  static final class AbortedResponse extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    AbortedResponse() {
+      super("response aborted");
     }
   }
 
@@ -185,6 +231,14 @@ final class Api implements HttpHandler {
       case "/healthz" -> {
         require(c, "GET");
         text(c.exchange, 200, "ok");
+      }
+      case "/api/v1/openapi.json" -> {
+        require(c, "GET");
+        c.exchange.getResponseHeaders().set("Content-Type", "application/json");
+        c.exchange.sendResponseHeaders(200, openApi.length());
+        try (OutputStream out = c.exchange.getResponseBody()) {
+          out.write(openApi.toByteArray());
+        }
       }
       case "/api/v1/auth/login" -> {
         require(c, "POST");
@@ -227,8 +281,20 @@ final class Api implements HttpHandler {
         logout(c);
       }
       case "/api/v1/me" -> {
-        require(c, "GET");
-        me(c);
+        if (c.method.equals("DELETE")) {
+          deleteMe(c);
+        } else {
+          require(c, "GET");
+          me(c);
+        }
+      }
+      case "/api/v1/me/exports" -> {
+        require(c, "POST");
+        startExport(c);
+      }
+      case "/api/v1/me/key-rotations" -> {
+        require(c, "POST");
+        startRotation(c);
       }
       case "/api/v1/me/enrollment" -> {
         require(c, "POST");
@@ -253,7 +319,15 @@ final class Api implements HttpHandler {
       default -> {
         String prefix = "/api/v1/me/app-passwords/";
         String factors = "/api/v1/me/mfa/";
-        if (p.startsWith(prefix) && p.length() > prefix.length()) {
+        String exportPrefix = "/api/v1/me/exports/";
+        String jobPrefix = "/api/v1/jobs/";
+        if (p.startsWith(exportPrefix) && p.endsWith("/content")) {
+          require(c, "GET");
+          streamExport(c, p.substring(exportPrefix.length(), p.length() - "/content".length()));
+        } else if (p.startsWith(jobPrefix) && p.length() > jobPrefix.length()) {
+          require(c, "GET");
+          job(c, p.substring(jobPrefix.length()));
+        } else if (p.startsWith(prefix) && p.length() > prefix.length()) {
           require(c, "DELETE");
           revokeAppPassword(c, p.substring(prefix.length()));
         } else if (p.startsWith(factors) && p.length() > factors.length()) {
@@ -481,6 +555,185 @@ final class Api implements HttpHandler {
       throw lifecycleFailure(e);
     }
     send(c.exchange, 201, out);
+  }
+
+  // ---- account deletion, exports, and jobs (ADR 0017) ----
+
+  /**
+   * Starts delayed deletion of the caller's own account. Needs a full session (not a recovery
+   * session) and a recent credential check; every session of the mailbox ends.
+   */
+  private void deleteMe(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.MAIL_ACCESS);
+    capability(session, Capability.KEY_ADMINISTRATION);
+    stepUp(c, session, optionalBody(c));
+    OpaqueId mailboxId = session.lease.mailboxId();
+    Account account = identity.account(mailboxId).orElseThrow(ApiException::unauthorized);
+    try {
+      identity.changeState(mailboxId, account.version(), AccountState.DELETION_PENDING);
+    } catch (IdentityException e) {
+      throw e.reason() == IdentityException.Reason.VERSION_MISMATCH
+          ? new ApiException(409, "account changed concurrently; retry")
+          : new ApiException(503, "temporarily unavailable");
+    } catch (IllegalStateException e) {
+      throw new ApiException(409, "state transition not allowed");
+    }
+    endSession(c);
+    send(
+        c.exchange,
+        200,
+        json.createObjectNode()
+            .put("state", "deletion_pending")
+            .put(
+                "note",
+                "Mail is no longer accepted and every session has ended. Backups and copies"
+                    + " made before now are not erased by this request."));
+  }
+
+  /**
+   * Negotiates an export: returns a ticket the same session redeems once, within {@link
+   * #EXPORT_TICKET}, at {@code GET /me/exports/{id}/content}.
+   */
+  private void startExport(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.MAIL_ACCESS);
+    JsonNode body = body(c);
+    stepUp(c, session, body);
+    String format = string(body, "format", 64);
+    if (!format.equals(org.shem.mailbox.MailboxExport.FORMAT)) {
+      throw ApiException.badRequest(
+          "format must be "
+              + org.shem.mailbox.MailboxExport.FORMAT
+              + " (encrypted exports are not"
+              + " yet available)");
+    }
+    OpaqueId id = OpaqueId.random(random);
+    Instant expires = clock.instant().plus(EXPORT_TICKET);
+    session.offerExport(id, expires);
+    send(
+        c.exchange,
+        201,
+        json.createObjectNode()
+            .put("id", id.toString())
+            .put("format", format)
+            .put("expiresAt", expires.toString())
+            .put("content", "/api/v1/me/exports/" + id + "/content"));
+  }
+
+  /**
+   * Streams the export. Nothing is staged: a disconnect or a revoked session aborts the stream,
+   * which the client sees as a truncated ZIP without a central directory.
+   */
+  private void streamExport(Call c, String rawId) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.MAIL_ACCESS);
+    OpaqueId id = OpaqueId.parseOrNull(rawId);
+    if (id == null || !session.redeemExport(id, clock.instant())) {
+      throw new ApiException(404, "not found");
+    }
+    if (!exports.tryAcquire()) {
+      throw new ApiException(429, "too many exports in progress", Duration.ofSeconds(30));
+    }
+    try (MailboxLease lease = session.lease.child()) {
+      c.exchange.getResponseHeaders().set("Content-Type", "application/zip");
+      c.exchange
+          .getResponseHeaders()
+          .set("Content-Disposition", "attachment; filename=\"mailbox-export.zip\"");
+      c.exchange.sendResponseHeaders(200, 0);
+      OutputStream out = c.exchange.getResponseBody();
+      try {
+        org.shem.mailbox.MailboxExport.write(lease, out, clock.instant());
+        out.close();
+      } catch (IOException | org.shem.store.StorageException | RuntimeException e) {
+        // Headers are sent; the only honest signal left is to abort the stream unfinished.
+        LOG.log(System.Logger.Level.INFO, "export aborted: {0}", e.getClass().getSimpleName());
+        throw new AbortedResponse();
+      }
+    } finally {
+      exports.release();
+    }
+  }
+
+  /** Starts a key rotation job (ADR 0017); always re-proves the current password. */
+  private void startRotation(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.KEY_ADMINISTRATION);
+    capability(session, Capability.MAIL_ACCESS);
+    JsonNode body = body(c);
+    String password = string(body, "currentPassword", MAX_SECRET);
+    try {
+      if (!auth.verifyPassword(session.lease, password, c.source())) {
+        throw ApiException.unauthorized();
+      }
+    } catch (AuthenticationException e) {
+      throw e.reason() == AuthenticationException.Reason.THROTTLED
+          ? new ApiException(429, "too many attempts", Duration.ofSeconds(5))
+          : ApiException.unauthorized();
+    }
+    session.authenticatedAt = clock.instant();
+    String key = c.exchange.getRequestHeaders().getFirst("Idempotency-Key");
+    if (key != null && (key.isEmpty() || key.length() > 128)) {
+      throw ApiException.badRequest("Idempotency-Key must be 1-128 characters");
+    }
+    MailboxLease parent = session.lease;
+    Jobs.Job job;
+    try {
+      job =
+          jobs.start(
+              parent.mailboxId(),
+              "key-rotation",
+              key,
+              j -> {
+                try (MailboxLease lease = parent.child()) {
+                  lifecycle.rotateKeys(lease, password);
+                } catch (KeyLifecycle.LifecycleException e) {
+                  j.detail = e.getMessage();
+                  throw e;
+                }
+              });
+    } catch (Jobs.Busy e) {
+      throw new ApiException(409, java.util.Objects.requireNonNullElse(e.getMessage(), "busy"));
+    }
+    c.exchange.getResponseHeaders().set("Location", "/api/v1/jobs/" + job.id);
+    send(c.exchange, 202, jobView(job));
+  }
+
+  private void job(Call c, String rawId) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    OpaqueId id = OpaqueId.parseOrNull(rawId);
+    Jobs.Job job =
+        (id == null ? Optional.<Jobs.Job>empty() : jobs.find(id, session.lease.mailboxId()))
+            .orElseThrow(() -> new ApiException(404, "not found"));
+    send(c.exchange, 200, jobView(job));
+  }
+
+  private ObjectNode jobView(Jobs.Job job) {
+    ObjectNode out =
+        json.createObjectNode()
+            .put("id", job.id.toString())
+            .put("type", job.type)
+            .put("status", job.status.name().toLowerCase(Locale.ROOT))
+            .put("createdAt", job.created.toString());
+    Instant finished = job.finished;
+    if (finished != null) {
+      out.put("finishedAt", finished.toString());
+    }
+    String detail = job.detail;
+    if (detail != null) {
+      out.put("detail", detail);
+    }
+    return out;
+  }
+
+  /** A DELETE may carry {@code currentPassword} for step-up, or no body at all. */
+  private @Nullable JsonNode optionalBody(Call c) throws ApiException, IOException {
+    String length = c.exchange.getRequestHeaders().getFirst("Content-Length");
+    String type = c.exchange.getRequestHeaders().getFirst("Content-Type");
+    if ((length == null || length.equals("0")) && type == null) {
+      return null;
+    }
+    return body(c);
   }
 
   // ---- second factors (ADR 0014) ----

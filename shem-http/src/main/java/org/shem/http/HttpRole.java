@@ -81,7 +81,7 @@ public final class HttpRole implements AutoCloseable {
         sweeper.scheduleWithFixedDelay(
             () -> {
               sessions.sweep();
-              api.sweepAdmin();
+              api.sweep();
             },
             30,
             30,
@@ -104,6 +104,6 @@ public final class HttpRole implements AutoCloseable {
     sweeper.shutdownNow();
     executor.shutdownNow();
     sessions.close();
-    api.closeAdmin();
+    api.close();
   }
 }

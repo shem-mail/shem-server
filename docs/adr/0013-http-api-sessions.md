@@ -1,6 +1,6 @@
 # ADR 0013: HTTP API Sessions and Self-Service (Step 14, First Slice)
 
-Status: accepted for the self-service slice. MFA is decided in [ADR 0014](0014-mfa.md), admin authentication and endpoints in [ADR 0016](0016-admin-api.md). Exports, key rotation jobs, and the OpenAPI contract are still open.
+Status: accepted for the self-service slice. MFA is decided in [ADR 0014](0014-mfa.md), admin authentication and endpoints in [ADR 0016](0016-admin-api.md), exports, rotation jobs, and the OpenAPI contract in [ADR 0017](0017-exports-jobs-openapi.md).
 
 ## Decision
 

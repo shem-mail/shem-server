@@ -41,6 +41,26 @@ final class SessionStore implements AutoCloseable {
     /** Unconfirmed TOTP secret during enrollment; wiped when replaced, confirmed, or ended. */
     @Nullable Secret pendingTotp;
 
+    /** One outstanding export ticket (ADR 0017), redeemable once by this session. */
+    private @Nullable OpaqueId exportTicket;
+
+    private @Nullable Instant exportTicketExpires;
+
+    synchronized void offerExport(OpaqueId id, Instant expires) {
+      exportTicket = id;
+      exportTicketExpires = expires;
+    }
+
+    synchronized boolean redeemExport(OpaqueId id, Instant now) {
+      Instant expires = exportTicketExpires;
+      boolean ok = id.equals(exportTicket) && expires != null && now.isBefore(expires);
+      if (ok) {
+        exportTicket = null;
+        exportTicketExpires = null;
+      }
+      return ok;
+    }
+
     /** Outstanding WebAuthn registration challenge. */
     byte @Nullable [] registrationChallenge;
 

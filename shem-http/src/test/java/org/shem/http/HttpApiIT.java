@@ -355,7 +355,7 @@ class HttpApiIT {
                 .status())
         .isEqualTo(413);
     assertThat(fixture.call("GET", "/api/v1/nothing", null).status()).isEqualTo(404);
-    assertThat(fixture.call("DELETE", "/api/v1/me", null).status()).isEqualTo(405);
+    assertThat(fixture.call("PUT", "/api/v1/me", null).status()).isEqualTo(405);
     assertThat(fixture.call("GET", "/healthz", null).body()).isEqualTo("ok");
     for (int i = 0; i < 3; i++) {
       login(HttpFixture.ALICE, HttpFixture.PASSWORD);
