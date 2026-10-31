@@ -3,12 +3,9 @@
 # Base images are pinned by multi-arch index digest; update tag and digest together.
 FROM maven:3.9.16-eclipse-temurin-25-noble@sha256:93b8a14ea2f412782e4e842651273b4d903e35cc496284f178fbbe2d67d00976 AS build
 WORKDIR /src
-COPY .mvn/ .mvn/
-COPY pom.xml ./
-COPY shem-app/pom.xml shem-app/
-RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline
-COPY shem-app/src/ shem-app/src/
-RUN --mount=type=cache,target=/root/.m2 mvn verify
+# The whole multi-module build (see .dockerignore); tests run as part of verify.
+COPY . .
+RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp verify
 
 FROM eclipse-temurin:25.0.4.1_1-jre-noble@sha256:3f2223fe04b750aa5a8179e29b5c9a1ddf7665fc9bb08bfe11ad01d143bc13a5
 RUN groupadd --system shem && useradd --system --gid shem --no-create-home --shell /usr/sbin/nologin shem

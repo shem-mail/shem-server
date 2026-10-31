@@ -11,6 +11,8 @@ import java.util.List;
  *   shem --config FILE serve          run the configured listeners
  *   shem --config FILE check          validate configuration and data directory
  *   shem --config FILE admin ...      offline administrator management (see AdminCommand)
+ *   shem --config FILE backup ...     offline backup and verification (see BackupCommand)
+ *   shem --config FILE restore DIR    restore into an empty data directory
  *   shem --config FILE dev ...        local development bootstrap (see DevBootstrapCommand)
  * </pre>
  */
@@ -23,7 +25,8 @@ public final class Main {
 
   static int run(List<String> args) throws Exception {
     if (args.size() < 3 || !args.get(0).equals("--config")) {
-      System.out.println("usage: shem --config FILE <serve | check | admin ... | dev ...>");
+      System.out.println(
+          "usage: shem --config FILE <serve | check | admin ... | backup ... | restore DIR | dev ...>");
       return 2;
     }
     ShemConfig config;
@@ -67,6 +70,8 @@ public final class Main {
           done.countDown();
         }
       }
+      case "backup" -> new BackupCommand(config, System.out).backup(rest.subList(1, rest.size()));
+      case "restore" -> new BackupCommand(config, System.out).restore(rest.subList(1, rest.size()));
       case "admin" ->
           new AdminCommand(config, System.out, DevBootstrapCommand.stdin())
               .run(rest.subList(1, rest.size()));

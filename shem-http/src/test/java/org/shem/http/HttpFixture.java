@@ -92,6 +92,7 @@ final class HttpFixture implements AutoCloseable {
   final KeyLifecycle lifecycle;
   final MailboxProvisioning provisioning;
   final AdminStore admins;
+  final org.shem.identity.AuditLog audit;
   final FakeDkim dkim = new FakeDkim();
 
   /** Attachment "extraction" for tests: UTF-8 text, or encrypted for {@code x-locked}. */
@@ -201,6 +202,7 @@ final class HttpFixture implements AutoCloseable {
             RANDOM);
     provisioning = new MailboxProvisioning(identity, paths, kdf, cheap, env, ids, RANDOM, clock);
     admins = AdminStore.open(root.resolve("admin/admins.bin"), kdf, cheap, ids, RANDOM, clock);
+    audit = org.shem.identity.AuditLog.open(root.resolve("audit/audit.log"), clock, null);
     adminTotp = admins.create(ADMIN, ADMIN_PASSWORD);
     identity.createDomain("example.org");
     String bootstrap = provision(ALICE);
@@ -250,7 +252,8 @@ final class HttpFixture implements AutoCloseable {
                 dkim,
                 Duration.ofDays(1),
                 "mx.example.org",
-                () -> certificateStatus),
+                () -> certificateStatus,
+                audit),
             tls,
             RANDOM,
             clock);
@@ -303,6 +306,11 @@ final class HttpFixture implements AutoCloseable {
   @Override
   public void close() {
     http.close();
+    try {
+      audit.close();
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
     registry.close();
     background.shutdownNow();
   }

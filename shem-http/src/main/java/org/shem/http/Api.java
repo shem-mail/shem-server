@@ -135,6 +135,9 @@ final class Api implements HttpHandler {
     @Nullable String token;
     boolean bearer;
 
+    /** The object a mutation created, for its audit outcome record (ADR 0020). */
+    @Nullable String auditTarget;
+
     Call(HttpExchange exchange) {
       this.exchange = exchange;
       this.method = exchange.getRequestMethod().toUpperCase(Locale.ROOT);

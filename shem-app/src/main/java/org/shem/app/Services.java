@@ -20,6 +20,7 @@ import org.shem.delivery.DeliveryService;
 import org.shem.extract.ExtractionSettings;
 import org.shem.extract.WorkerPool;
 import org.shem.identity.AdminStore;
+import org.shem.identity.AuditLog;
 import org.shem.identity.DeliveryPolicy;
 import org.shem.identity.IdentityService;
 import org.shem.identity.QuotaLedger;
@@ -56,6 +57,7 @@ public final class Services implements AutoCloseable {
   public final @Nullable WorkerPool extraction;
 
   public final AdminStore admins;
+  public final AuditLog audit;
   public final IdGenerator ids;
   public final SecureRandom random;
   public final Clock clock;
@@ -158,6 +160,15 @@ public final class Services implements AutoCloseable {
     this.provisioning =
         new MailboxProvisioning(
             identity, paths, kdf, config.slotParameters(), metadataEnvironment, ids, random, clock);
+    try {
+      this.audit =
+          AuditLog.open(
+              data.root().resolve("audit").resolve("audit.log"),
+              clock,
+              config.auditToStdout() ? System.out : null);
+    } catch (AuditLog.BrokenChainException e) {
+      throw new IOException("audit log failed verification: " + e.getMessage(), e);
+    }
     this.admins =
         AdminStore.open(data.adminFile(), kdf, config.slotParameters(), ids, random, clock);
     // Inbound SMTP prepends trace and policy fields to messages of up to message.maxBytes.
@@ -203,6 +214,7 @@ public final class Services implements AutoCloseable {
       if (pool != null) {
         pool.close();
       }
+      audit.close();
       background.shutdown();
       indexing.shutdown();
     } finally {

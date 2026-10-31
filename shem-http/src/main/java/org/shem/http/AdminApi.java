@@ -36,6 +36,7 @@ import org.shem.mailbox.MailboxProvisioning;
 public final class AdminApi {
   static final String COOKIE = "__Host-shem-admin";
   static final Duration STEP_UP = Duration.ofMinutes(5);
+  private static final System.Logger LOG = System.getLogger(AdminApi.class.getName());
 
   /** What the admin API needs from the rest of the server. */
   public record Services(
@@ -45,7 +46,8 @@ public final class AdminApi {
       DkimKeys dkim,
       Duration bootstrapValidity,
       String mailHost,
-      java.util.function.Supplier<org.shem.tls.CertificateRenewal.Status> certificates) {}
+      java.util.function.Supplier<org.shem.tls.CertificateRenewal.Status> certificates,
+      org.shem.identity.AuditLog audit) {}
 
   private final Api api;
   private final Services s;
@@ -67,9 +69,56 @@ public final class AdminApi {
     sessions.close();
   }
 
+  /**
+   * Every authenticated mutation is audited (ADR 0020): a durable {@code attempt} record before it
+   * runs, refused with 503 if that record cannot be written, and the outcome after.
+   */
   void route(Api.Call c) throws ApiException, IOException {
     String p = c.path.substring("/api/v1/admin".length());
     String[] parts = p.substring(1).split("/", -1);
+    if (c.method.equals("GET") || p.startsWith("/auth/")) {
+      dispatch(c, p, parts);
+      return;
+    }
+    AdminSessionStore.Session session;
+    try {
+      session = session(c);
+    } catch (ApiException e) {
+      // Unauthenticated: routing answers 405 or 401 and nothing changes, so nothing to audit.
+      dispatch(c, p, parts);
+      return;
+    }
+    String actor = "admin:" + session.admin;
+    String action =
+        parts[0]
+            + (parts.length == 3 ? "." + parts[2] : "")
+            + "."
+            + c.method.toLowerCase(Locale.ROOT);
+    String target = parts.length >= 2 ? parts[1] : "-";
+    try {
+      s.audit().record(actor, action, target, "attempt");
+    } catch (IOException e) {
+      throw new ApiException(503, "audit log unavailable; change refused");
+    }
+    String outcome = "failed";
+    try {
+      dispatch(c, p, parts);
+      outcome = "ok";
+    } finally {
+      String result = c.auditTarget;
+      auditQuietly(actor, action, result == null ? target : result, outcome);
+    }
+  }
+
+  private void auditQuietly(String actor, String action, String target, String outcome) {
+    try {
+      s.audit().record(actor, action, target, outcome);
+    } catch (IOException e) {
+      LOG.log(System.Logger.Level.ERROR, "audit record could not be written");
+    }
+  }
+
+  private void dispatch(Api.Call c, String p, String[] parts) throws ApiException, IOException {
     switch (p) {
       case "/auth/login" -> {
         Api.require(c, "POST");
@@ -196,6 +245,7 @@ public final class AdminApi {
       Thread.currentThread().interrupt();
       throw new ApiException(503, "temporarily unavailable");
     }
+    auditQuietly("admin:" + name, "auth.password", "-", verified.isPresent() ? "ok" : "failed");
     if (verified.isEmpty()) {
       sessions.failed(c.source());
       throw ApiException.unauthorized();
@@ -219,6 +269,7 @@ public final class AdminApi {
     } catch (org.shem.crypto.CryptoException e) {
       ok = false;
     }
+    auditQuietly("admin:" + pending.verified.name(), "auth.totp", "-", ok ? "ok" : "failed");
     if (!ok) {
       sessions.pendingFailed(id, pending);
       sessions.failed(c.source());
@@ -295,7 +346,9 @@ public final class AdminApi {
     session(c);
     String name = Api.string(api.body(c), "name", 253);
     try {
-      api.send(c.exchange, 201, view(s.identity().createDomain(name)));
+      Domain created = s.identity().createDomain(name);
+      c.auditTarget = created.domainId().toString();
+      api.send(c.exchange, 201, view(created));
     } catch (IdentityException e) {
       throw failure(e);
     } catch (IllegalArgumentException e) {
@@ -445,6 +498,7 @@ public final class AdminApi {
     } catch (Exception e) {
       throw new ApiException(503, "temporarily unavailable");
     }
+    c.auditTarget = provisioned.account().mailboxId().toString();
     ObjectNode out = view(provisioned.account());
     try (Secret bootstrap = provisioned.bootstrapPassword()) {
       // Shown once; the administrator hands it to the user, who must replace it at enrollment.
@@ -538,7 +592,9 @@ public final class AdminApi {
     List<EmailAddress> targets = addresses(body, "targets");
     List<OpaqueId> senders = senders(body);
     try {
-      api.send(c.exchange, 201, view(s.identity().createAlias(address, targets, senders)));
+      Alias created = s.identity().createAlias(address, targets, senders);
+      c.auditTarget = created.aliasId().toString();
+      api.send(c.exchange, 201, view(created));
     } catch (IdentityException e) {
       throw failure(e);
     }

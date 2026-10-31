@@ -41,7 +41,8 @@ public record ShemConfig(
     @Nullable Outbound outbound,
     @Nullable Http http,
     @Nullable MtaSts mtaSts,
-    @Nullable Extraction extraction) {
+    @Nullable Extraction extraction,
+    boolean auditToStdout) {
 
   /**
    * Listener certificate files (PEM) and the host names they must cover. With {@code acme}, the
@@ -224,6 +225,7 @@ public record ShemConfig(
           "acme.challengeBind",
           "mtaSts.mode",
           "mtaSts.maxAge",
+          "audit.stdout",
           "extraction.enabled",
           "extraction.sandbox",
           "extraction.scratch",
@@ -349,7 +351,8 @@ public record ShemConfig(
         outbound(p),
         http(p),
         mtaSts(p),
-        extraction(p, base));
+        extraction(p, base),
+        bool(p, "audit.stdout", false));
   }
 
   private static @Nullable Tls tls(Properties p, Path base, Path data) {

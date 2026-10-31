@@ -23,3 +23,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0017](0017-exports-jobs-openapi.md) | Streaming plaintext export, key rotation jobs, self-deletion, OpenAPI contract | Accepted (encrypted export open) |
 | [0018](0018-acme-and-mta-sts.md) | ACME (acme4j, HTTP-01) with atomic generations, port-80 challenge/redirect listener, MTA-STS hosting | Accepted (no real-CA run yet) |
 | [0019](0019-attachment-extraction.md) | Tika in isolation-probed worker processes; separate attachment index and search API with explicit coverage | Accepted |
+| [0020](0020-audit-and-backup.md) | Hash-chained fail-closed audit log, offline backup/verify/restore, CI workflow | Accepted (no hot backup; CI not yet run) |

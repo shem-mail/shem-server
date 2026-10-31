@@ -110,6 +110,7 @@ final class ServeCommand {
                 new CertificateRenewal.Status(
                     tls.notAfter(), null, services.clock.instant(), 0, tls.lastFailure(), null);
       }
+      auditAccountChanges(services);
       String hostName = tlsConfig.hostNames().get(0);
       ShemConfig.Policy policySettings = config.policy();
       DnsResolver dns =
@@ -239,6 +240,32 @@ final class ServeCommand {
         services.clock);
   }
 
+  /**
+   * Records key-fingerprint and lifecycle-state changes of accounts, whoever caused them
+   * (enrollment, rotation, self-deletion, administrators), with only the opaque mailbox id.
+   */
+  private static void auditAccountChanges(Services services) {
+    services.identity.subscribe(
+        (before, after) -> {
+          try {
+            if (before == null
+                || !before.publicKey().fingerprint().equals(after.publicKey().fingerprint())) {
+              services.audit.record(
+                  "system", "account.key-changed", after.mailboxId().toString(), "ok");
+            }
+            if (before != null && before.state() != after.state()) {
+              services.audit.record(
+                  "system",
+                  "account.state." + after.state().name().toLowerCase(java.util.Locale.ROOT),
+                  after.mailboxId().toString(),
+                  "ok");
+            }
+          } catch (java.io.IOException e) {
+            LOG.log(System.Logger.Level.ERROR, "audit record could not be written");
+          }
+        });
+  }
+
   /** ACME renewal and the port-80 listener it needs (ADR 0018). */
   private static final class Acme implements AutoCloseable {
     final CertificateRenewal renewal;
@@ -311,7 +338,8 @@ final class ServeCommand {
             dkimKeys(services),
             config.bootstrapValidity(),
             hostName,
-            certificates),
+            certificates,
+            services.audit),
         tls,
         services.random,
         services.clock);

@@ -40,7 +40,9 @@ final class AdminCommand {
             out.println("passwords do not match");
             return 1;
           }
+          services.audit.record("cli", "admin.create", args.get(1), "attempt");
           try (Secret totp = admins.create(args.get(1), password)) {
+            services.audit.record("cli", "admin.create", args.get(1), "ok");
             String secret = Totp.base32(totp);
             out.println("administrator created; enroll this TOTP secret now (shown once):");
             out.println(secret);
@@ -51,9 +53,17 @@ final class AdminCommand {
                     + secret
                     + "&issuer=Shem&algorithm=SHA1&digits=6&period=30");
           } catch (AdminStore.AdminException e) {
+            services.audit.record("cli", "admin.create", args.get(1), "failed");
             out.println("cannot create administrator: " + e.getMessage());
             return 1;
           }
+        }
+        case "audit-verify" -> {
+          if (args.size() != 1) {
+            return usage();
+          }
+          // Opening Services already verified the chain; report its length.
+          out.println("audit log intact: " + services.audit.size() + " records");
         }
         case "list" -> {
           if (args.size() != 1) {
@@ -65,9 +75,12 @@ final class AdminCommand {
           if (args.size() != 2) {
             return usage();
           }
+          services.audit.record("cli", "admin.delete", args.get(1), "attempt");
           try {
             admins.delete(args.get(1));
+            services.audit.record("cli", "admin.delete", args.get(1), "ok");
           } catch (AdminStore.AdminException e) {
+            services.audit.record("cli", "admin.delete", args.get(1), "failed");
             out.println("cannot delete administrator: " + e.getMessage());
             return 1;
           }
@@ -85,7 +98,7 @@ final class AdminCommand {
   }
 
   private int usage() {
-    out.println("usage: shem admin <create NAME | list | delete NAME>");
+    out.println("usage: shem admin <create NAME | list | delete NAME | audit-verify>");
     return 2;
   }
 }

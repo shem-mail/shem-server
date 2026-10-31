@@ -257,6 +257,12 @@ class WorkerPoolIT {
   @Test
   void theReferenceSandboxPassesTheIsolationProbe() throws Exception {
     assumeTrue("root".equals(System.getProperty("user.name")), "needs root for namespaces");
+    Process probe =
+        new ProcessBuilder("unshare", "--net", "--mount", "true")
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start();
+    assumeTrue(probe.waitFor() == 0, "namespaces not permitted here (for example in docker build)");
     assumeTrue(Files.isDirectory(Path.of("/dev/shm")), "needs a tmpfs at /dev/shm");
     Path data = dir.resolve("data");
     Files.createDirectories(data);

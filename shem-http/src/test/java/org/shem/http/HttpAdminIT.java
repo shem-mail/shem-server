@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -446,5 +447,30 @@ class HttpAdminIT {
       assertThat(as(admin, "GET", path, null).status()).as(path).isEqualTo(404);
       assertThat(as(admin, "POST", path, "{}").status()).as(path).isEqualTo(404);
     }
+  }
+
+  @Test
+  void adminChangesAreAuditedAndRefusedWhenTheAuditLogFails() throws Exception {
+    Admin admin = login();
+    String id =
+        json(as(admin, "POST", "/api/v1/admin/domains", body("name", "example.net")))
+            .get("id")
+            .asText();
+    List<String> records = java.nio.file.Files.readAllLines(fixture.audit.file());
+    assertThat(records)
+        .anyMatch(r -> r.contains(" admin:root auth.password - ok "))
+        .anyMatch(r -> r.contains(" admin:root auth.totp - ok "))
+        .anyMatch(r -> r.contains(" admin:root domains.post - attempt "))
+        .anyMatch(r -> r.contains(" admin:root domains.post " + id + " ok "));
+    assertThat(String.join("\n", records)).doesNotContain("example.net");
+    assertThat(org.shem.identity.AuditLog.verifyFile(fixture.audit.file()))
+        .isEqualTo(records.size());
+
+    fixture.audit.close();
+    assertThat(as(admin, "POST", "/api/v1/admin/domains", body("name", "example.com")).status())
+        .isEqualTo(503);
+    assertThat(fixture.identity.directory().domainByName("example.com"))
+        .as("fail closed: no unaudited change")
+        .isEmpty();
   }
 }
