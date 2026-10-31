@@ -5,17 +5,21 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import org.jspecify.annotations.Nullable;
 import org.shem.http.AdminApi;
+import org.shem.http.ChallengeRole;
 import org.shem.http.DkimKeys;
 import org.shem.http.HttpRole;
 import org.shem.http.HttpSettings;
+import org.shem.http.MtaStsPolicy;
 import org.shem.imap.ImapRole;
 import org.shem.outbound.DkimSigning;
 import org.shem.outbound.OutboundDelivery;
@@ -30,7 +34,11 @@ import org.shem.smtp.InboundSettings;
 import org.shem.smtp.InboundSmtpRole;
 import org.shem.smtp.SubmissionRole;
 import org.shem.smtp.SubmissionSettings;
+import org.shem.tls.Acme4jAuthority;
+import org.shem.tls.CertificateGenerations;
+import org.shem.tls.CertificateRenewal;
 import org.shem.tls.CertificateWatcher;
+import org.shem.tls.Http01Challenges;
 import org.shem.tls.ReloadableTlsContext;
 
 /**
@@ -63,13 +71,30 @@ final class ServeCommand {
       out.println("nothing to serve: configure tls.* and imap.*, smtp.*, submission.*, or http.*");
       return 2;
     }
-    try (Services services = Services.start(config)) {
+    ShemConfig.Acme acme = tlsConfig.acme();
+    try (Services services = Services.start(config);
+        Acme automatic = acme == null ? null : startAcme(services, tlsConfig, acme)) {
+      if (automatic != null && !automatic.renewal.awaitCertificate(stop)) {
+        out.println("stopped before a certificate was issued");
+        return 0;
+      }
       ReloadableTlsContext tls =
           ReloadableTlsContext.open(
               tlsConfig.certificateChain(),
               tlsConfig.privateKey(),
               tlsConfig.hostNames(),
               services.clock);
+      Supplier<CertificateRenewal.Status> certificates;
+      if (automatic != null) {
+        automatic.renewal.attach(tls);
+        automatic.renewal.start(Duration.ofMinutes(5));
+        certificates = automatic.renewal::status;
+      } else {
+        certificates =
+            () ->
+                new CertificateRenewal.Status(
+                    tls.notAfter(), null, services.clock.instant(), 0, tls.lastFailure(), null);
+      }
       String hostName = tlsConfig.hostNames().get(0);
       ShemConfig.Policy policySettings = config.policy();
       DnsResolver dns =
@@ -90,7 +115,7 @@ final class ServeCommand {
           Outbound outbound = startOutbound(services, hostName, dns);
           SubmissionRole submission =
               startSubmission(services, tls, hostName, outbound == null ? null : outbound.relay);
-          HttpRole http = startHttp(services, tls, hostName)) {
+          HttpRole http = startHttp(services, tls, hostName, certificates)) {
         if (http != null) {
           out.println("http api listening on port " + http.port());
         }
@@ -199,7 +224,50 @@ final class ServeCommand {
         services.clock);
   }
 
-  private @Nullable HttpRole startHttp(Services services, ReloadableTlsContext tls, String hostName)
+  /** ACME renewal and the port-80 listener it needs (ADR 0018). */
+  private static final class Acme implements AutoCloseable {
+    final CertificateRenewal renewal;
+    final ChallengeRole port80;
+
+    Acme(CertificateRenewal renewal, ChallengeRole port80) {
+      this.renewal = renewal;
+      this.port80 = port80;
+    }
+
+    @Override
+    public void close() {
+      renewal.close();
+      port80.close();
+    }
+  }
+
+  private Acme startAcme(Services services, ShemConfig.Tls tlsConfig, ShemConfig.Acme acme)
+      throws Exception {
+    CertificateGenerations generations =
+        new CertificateGenerations(services.data.acme(), tlsConfig.hostNames());
+    Http01Challenges challenges = new Http01Challenges();
+    CertificateRenewal renewal =
+        new CertificateRenewal(
+            generations,
+            new Acme4jAuthority(acme.directory(), generations.accountKeyFile(), acme.email()),
+            challenges,
+            tlsConfig.hostNames(),
+            services.clock,
+            services.random);
+    ChallengeRole port80 =
+        ChallengeRole.start(resolve(acme.challengeBind()), challenges, tlsConfig.hostNames());
+    out.println("acme challenge listener on port " + port80.port());
+    if (generations.current(services.clock.instant()).isEmpty()) {
+      out.println("no valid certificate yet; requesting one before opening TLS listeners");
+    }
+    return new Acme(renewal, port80);
+  }
+
+  private @Nullable HttpRole startHttp(
+      Services services,
+      ReloadableTlsContext tls,
+      String hostName,
+      Supplier<CertificateRenewal.Status> certificates)
       throws Exception {
     ShemConfig.Http http = config.http();
     if (http == null) {
@@ -216,7 +284,8 @@ final class ServeCommand {
             10,
             http.idleTimeout(),
             http.absoluteLifetime(),
-            Duration.ofMinutes(5)),
+            Duration.ofMinutes(5),
+            mtaStsPolicy(hostName)),
         services.sessions,
         services.lifecycle,
         services.identity,
@@ -226,10 +295,22 @@ final class ServeCommand {
             services.provisioning,
             dkimKeys(services),
             config.bootstrapValidity(),
-            hostName),
+            hostName,
+            certificates),
         tls,
         services.random,
         services.clock);
+  }
+
+  private @Nullable MtaStsPolicy mtaStsPolicy(String hostName) {
+    ShemConfig.MtaSts mtaSts = config.mtaSts();
+    if (mtaSts == null) {
+      return null;
+    }
+    return new MtaStsPolicy(
+        MtaStsPolicy.Mode.valueOf(mtaSts.mode().toUpperCase(java.util.Locale.ROOT)),
+        List.of(hostName),
+        mtaSts.maxAge());
   }
 
   private static DkimKeys dkimKeys(Services services) {

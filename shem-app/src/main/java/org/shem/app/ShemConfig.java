@@ -39,14 +39,44 @@ public record ShemConfig(
     @Nullable Submission submission,
     Policy policy,
     @Nullable Outbound outbound,
-    @Nullable Http http) {
+    @Nullable Http http,
+    @Nullable MtaSts mtaSts) {
 
-  /** Listener certificate files (PEM) and the host names they must cover. */
-  public record Tls(Path certificateChain, Path privateKey, List<String> hostNames) {
+  /**
+   * Listener certificate files (PEM) and the host names they must cover. With {@code acme}, the
+   * files are the live ACME generation under the data directory (ADR 0018).
+   */
+  public record Tls(
+      Path certificateChain, Path privateKey, List<String> hostNames, @Nullable Acme acme) {
     public Tls {
       hostNames = List.copyOf(hostNames);
       if (hostNames.isEmpty()) {
         throw new IllegalArgumentException("tls.hostNames must list at least one host");
+      }
+    }
+  }
+
+  /**
+   * Automatic certificates (ADR 0018).
+   *
+   * @param directory the CA's ACME directory URL
+   * @param email optional contact address registered with the CA
+   * @param challengeBind the plain-HTTP listener for HTTP-01 and redirects (port 80 in production)
+   */
+  public record Acme(
+      java.net.URI directory, @Nullable String email, InetSocketAddress challengeBind) {
+    public Acme {
+      if (!directory.getScheme().equals("https")) {
+        throw new IllegalArgumentException("acme.directory must be an https URL");
+      }
+    }
+  }
+
+  /** The hosted MTA-STS policy (ADR 0018); {@code mx} is the first TLS host name. */
+  public record MtaSts(String mode, Duration maxAge) {
+    public MtaSts {
+      if (!Set.of("enforce", "testing", "none").contains(mode)) {
+        throw new IllegalArgumentException("mtaSts.mode must be enforce, testing, or none");
       }
     }
   }
@@ -169,6 +199,12 @@ public record ShemConfig(
           "tls.certificateChain",
           "tls.privateKey",
           "tls.hostNames",
+          "acme.directory",
+          "acme.email",
+          "acme.agreeToTerms",
+          "acme.challengeBind",
+          "mtaSts.mode",
+          "mtaSts.maxAge",
           "imap.bind",
           "imap.maxConnections",
           "imap.maxConnectionsPerIp",
@@ -232,6 +268,9 @@ public record ShemConfig(
     if (smtp != null && tls == null) {
       throw new IllegalArgumentException("smtp requires tls: STARTTLS is always offered");
     }
+    if (mtaSts != null && http == null) {
+      throw new IllegalArgumentException("mtaSts.mode requires the HTTPS listener (http.bind)");
+    }
   }
 
   public static ShemConfig load(Path file) throws IOException {
@@ -253,8 +292,9 @@ public record ShemConfig(
     if (dataDir == null || dataDir.isBlank()) {
       throw new IllegalArgumentException("data.directory is required");
     }
+    Path data = base.resolve(dataDir).normalize();
     return new ShemConfig(
-        base.resolve(dataDir).normalize(),
+        data,
         Mode.valueOf(p.getProperty("mode", "PRODUCTION").trim().toUpperCase(java.util.Locale.ROOT)),
         bool(p, "dev.bootstrap.enabled", false),
         new Argon2Parameters(
@@ -268,30 +308,67 @@ public record ShemConfig(
         duration(p, "account.recreationWaitingPeriod", Duration.ofDays(30)),
         duration(p, "keys.oldKeyRetention", Duration.ofMinutes(15)),
         bool(p, "delivery.acceptBeforeEnrollment", true),
-        tls(p, base),
+        tls(p, base, data),
         imap(p),
         smtp(p),
         submission(p),
         policy(p, base),
         outbound(p),
-        http(p));
+        http(p),
+        mtaSts(p));
   }
 
-  private static @Nullable Tls tls(Properties p, Path base) {
+  private static @Nullable Tls tls(Properties p, Path base, Path data) {
     String chain = p.getProperty("tls.certificateChain");
     String key = p.getProperty("tls.privateKey");
+    List<String> hosts =
+        Arrays.stream(p.getProperty("tls.hostNames", "").split(","))
+            .map(String::trim)
+            .filter(h -> !h.isEmpty())
+            .map(h -> h.toLowerCase(java.util.Locale.ROOT))
+            .toList();
+    String directory = p.getProperty("acme.directory");
+    if (directory != null) {
+      if (chain != null || key != null) {
+        throw new IllegalArgumentException(
+            "acme.directory manages the certificate; remove tls.certificateChain/privateKey");
+      }
+      if (!bool(p, "acme.agreeToTerms", false)) {
+        throw new IllegalArgumentException(
+            "acme.agreeToTerms=true is required: read the CA's terms of service first");
+      }
+      String bind = p.getProperty("acme.challengeBind");
+      if (bind == null) {
+        throw new IllegalArgumentException("acme.challengeBind is required (port 80 listener)");
+      }
+      String email = p.getProperty("acme.email");
+      Path live = data.resolve("acme").resolve("live");
+      return new Tls(
+          live.resolve("chain.pem"),
+          live.resolve("key.pem"),
+          hosts,
+          new Acme(
+              java.net.URI.create(directory.strip()),
+              email == null || email.isBlank() ? null : email.strip(),
+              address(bind, "acme.challengeBind")));
+    }
     if (chain == null && key == null) {
       return null;
     }
     if (chain == null || key == null) {
       throw new IllegalArgumentException("tls.certificateChain and tls.privateKey go together");
     }
-    List<String> hosts =
-        Arrays.stream(p.getProperty("tls.hostNames", "").split(","))
-            .map(String::trim)
-            .filter(h -> !h.isEmpty())
-            .toList();
-    return new Tls(base.resolve(chain.trim()), base.resolve(key.trim()), hosts);
+    return new Tls(base.resolve(chain.trim()), base.resolve(key.trim()), hosts, null);
+  }
+
+  private static @Nullable MtaSts mtaSts(Properties p) {
+    String mode = p.getProperty("mtaSts.mode");
+    if (mode == null) {
+      return null;
+    }
+    return new MtaSts(
+        mode.strip().toLowerCase(java.util.Locale.ROOT),
+        duration(p, "mtaSts.maxAge", Duration.ofDays(7)));
   }
 
   private static @Nullable Imap imap(Properties p) {

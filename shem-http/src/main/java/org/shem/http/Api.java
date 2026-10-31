@@ -219,6 +219,11 @@ final class Api implements HttpHandler {
 
   private void route(Call c) throws ApiException, IOException {
     String p = c.path;
+    if (p.equals("/.well-known/mta-sts.txt")) {
+      require(c, "GET");
+      mtaSts(c);
+      return;
+    }
     if (p.startsWith("/api/v1/admin/")) {
       AdminApi admin = this.admin;
       if (admin == null) {
@@ -555,6 +560,34 @@ final class Api implements HttpHandler {
       throw lifecycleFailure(e);
     }
     send(c.exchange, 201, out);
+  }
+
+  // ---- MTA-STS policy hosting (ADR 0018) ----
+
+  /**
+   * Serves the policy only on {@code mta-sts.<domain>} for a local domain. The listener certificate
+   * must cover that name (configured in {@code tls.hostNames}), or senders reject the policy fetch,
+   * which is the safe failure.
+   */
+  private void mtaSts(Call c) throws ApiException, IOException {
+    MtaStsPolicy policy = settings.mtaSts();
+    String host = c.exchange.getRequestHeaders().getFirst("Host");
+    if (policy == null || host == null) {
+      throw new ApiException(404, "not found");
+    }
+    String name = host.strip().toLowerCase(Locale.ROOT);
+    int colon = name.lastIndexOf(':');
+    if (colon > 0) {
+      name = name.substring(0, colon);
+    }
+    if (!name.startsWith("mta-sts.") || !identity.isLocalDomain(name.substring(8))) {
+      throw new ApiException(404, "not found");
+    }
+    text(c.exchange, 200, policy.text());
+  }
+
+  @Nullable MtaStsPolicy mtaStsPolicy() {
+    return settings.mtaSts();
   }
 
   // ---- account deletion, exports, and jobs (ADR 0017) ----

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,8 @@ class OpenApiContractIT {
   private JsonNode contract;
 
   /** One documented operation. */
-  record Operation(String method, String template, String principal, boolean hasBody) {
+  record Operation(
+      String method, String template, String principal, boolean hasBody, @Nullable String host) {
     String path() {
       return template.replaceAll("\\{[^}]+}", "0123456789abcdef0123456789abcdef");
     }
@@ -55,7 +57,10 @@ class OpenApiContractIT {
                 op.getKey().toUpperCase(java.util.Locale.ROOT),
                 path.getKey(),
                 op.getValue().get("x-shem-principal").asText(),
-                op.getValue().has("requestBody")));
+                op.getValue().has("requestBody"),
+                op.getValue().has("x-shem-host")
+                    ? op.getValue().get("x-shem-host").asText().replace("{domain}", "example.org")
+                    : null));
       }
     }
     return out;
@@ -64,6 +69,11 @@ class OpenApiContractIT {
   private HttpFixture.Response call(Operation op, String... auth) throws Exception {
     List<String> headers = new ArrayList<>(List.of("Origin", HttpFixture.ORIGIN));
     headers.addAll(List.of(auth));
+    String host = op.host();
+    if (host != null) {
+      headers.add("Host");
+      headers.add(host);
+    }
     return fixture.call(
         op.method(), op.path(), op.hasBody() ? "{}" : null, headers.toArray(String[]::new));
   }
@@ -139,7 +149,7 @@ class OpenApiContractIT {
         if (!path.getValue().has(method)) {
           Operation op =
               new Operation(
-                  method.toUpperCase(java.util.Locale.ROOT), path.getKey(), "public", false);
+                  method.toUpperCase(java.util.Locale.ROOT), path.getKey(), "public", false, null);
           assertThat(call(op).status()).as(op.toString()).isEqualTo(405);
         }
       }

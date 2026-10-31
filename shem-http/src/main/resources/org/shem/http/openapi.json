@@ -3,7 +3,7 @@
   "info": {
     "title": "Shem server API",
     "version": "1.0.0",
-    "description": "Versioned HTTP contract (ADR 0013-0017). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
+    "description": "Versioned HTTP contract (ADR 0013-0018). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
   },
   "paths": {
     "/healthz": {
@@ -26,6 +26,29 @@
           }
         },
         "security": []
+      }
+    },
+    "/.well-known/mta-sts.txt": {
+      "get": {
+        "summary": "MTA-STS policy (RFC 8461); only on mta-sts.<local domain>",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "Policy",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "x-shem-host": "mta-sts.{domain}"
       }
     },
     "/api/v1/openapi.json": {
@@ -1299,6 +1322,35 @@
         ]
       }
     },
+    "/api/v1/admin/tls": {
+      "get": {
+        "summary": "Listener certificate and ACME renewal state (no keys)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/admin/domains": {
       "get": {
         "summary": "List domains",
@@ -2286,6 +2338,33 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "CertificateStatus": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "notAfter": {
+            "type": "string"
+          },
+          "renewAt": {
+            "type": "string"
+          },
+          "nextAttempt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "consecutiveFailures": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true,
+            "description": "exception class only"
+          },
+          "lastSuccess": {
+            "type": "string"
           }
         }
       },

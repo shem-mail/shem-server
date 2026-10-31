@@ -51,7 +51,8 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
-          <argLine>-XX:-HeapDumpOnOutOfMemoryError -XX:-CreateCoredumpOnCrash</argLine>
+          <!-- Tests set Host to exercise virtual-host routing (MTA-STS, port-80 redirects). -->
+          <argLine>-XX:-HeapDumpOnOutOfMemoryError -XX:-CreateCoredumpOnCrash -Djdk.httpclient.allowRestrictedHeaders=host</argLine>
         </configuration>
       </plugin>
     </plugins>

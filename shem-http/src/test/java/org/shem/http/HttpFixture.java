@@ -52,6 +52,8 @@ final class HttpFixture implements AutoCloseable {
   static final String PASSWORD = "correct horse battery staple";
   static final Duration IDLE = Duration.ofMinutes(30);
   static final Duration STEP_UP = Duration.ofMinutes(5);
+  static final MtaStsPolicy MTA_STS =
+      new MtaStsPolicy(MtaStsPolicy.Mode.TESTING, List.of("mx.example.org"), Duration.ofDays(7));
 
   static final class MutableClock extends Clock {
     volatile Instant now = Instant.now();
@@ -91,6 +93,17 @@ final class HttpFixture implements AutoCloseable {
   final MailboxProvisioning provisioning;
   final AdminStore admins;
   final FakeDkim dkim = new FakeDkim();
+
+  /** What the admin TLS route reports; tests replace it. */
+  volatile org.shem.tls.CertificateRenewal.Status certificateStatus =
+      new org.shem.tls.CertificateRenewal.Status(
+          Instant.parse("2027-01-01T00:00:00Z"),
+          Instant.parse("2026-12-01T00:00:00Z"),
+          Instant.parse("2026-12-01T00:00:00Z"),
+          0,
+          null,
+          null);
+
   final HttpRole http;
   final HttpClient client;
   final String base;
@@ -203,12 +216,19 @@ final class HttpFixture implements AutoCloseable {
                 3,
                 IDLE,
                 Duration.ofHours(12),
-                STEP_UP),
+                STEP_UP,
+                MTA_STS),
             sessions,
             lifecycle,
             identity,
             new AdminApi.Services(
-                admins, identity, provisioning, dkim, Duration.ofDays(1), "mx.example.org"),
+                admins,
+                identity,
+                provisioning,
+                dkim,
+                Duration.ofDays(1),
+                "mx.example.org",
+                () -> certificateStatus),
             tls,
             RANDOM,
             clock);

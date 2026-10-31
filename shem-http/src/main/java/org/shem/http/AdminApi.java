@@ -44,7 +44,8 @@ public final class AdminApi {
       MailboxProvisioning provisioning,
       DkimKeys dkim,
       Duration bootstrapValidity,
-      String mailHost) {}
+      String mailHost,
+      java.util.function.Supplier<org.shem.tls.CertificateRenewal.Status> certificates) {}
 
   private final Api api;
   private final Services s;
@@ -91,6 +92,12 @@ public final class AdminApi {
             .getResponseHeaders()
             .add("Set-Cookie", COOKIE + "=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0");
         c.exchange.sendResponseHeaders(204, -1);
+        return;
+      }
+      case "/tls" -> {
+        Api.require(c, "GET");
+        session(c);
+        certificates(c);
         return;
       }
       case "/me" -> {
@@ -369,6 +376,19 @@ public final class AdminApi {
         .put("type", "TXT")
         .put("name", "_dmarc." + domain.name())
         .put("value", "v=DMARC1; p=quarantine; adkim=s; aspf=s");
+    MtaStsPolicy policy = api.mtaStsPolicy();
+    if (policy != null) {
+      records
+          .addObject()
+          .put("type", "CNAME")
+          .put("name", "mta-sts." + domain.name())
+          .put("value", s.mailHost() + ".");
+      records
+          .addObject()
+          .put("type", "TXT")
+          .put("name", "_mta-sts." + domain.name())
+          .put("value", "v=STSv1; id=" + policy.id());
+    }
     String selector = domain.dkimSelector();
     if (selector != null) {
       try {
@@ -385,6 +405,19 @@ public final class AdminApi {
       }
     }
     api.send(c.exchange, 200, api.json.createObjectNode().set("records", records));
+  }
+
+  /** Listener certificate and renewal state; contains no keys or CA account data. */
+  private void certificates(Api.Call c) throws IOException {
+    org.shem.tls.CertificateRenewal.Status status = s.certificates().get();
+    ObjectNode out = api.json.createObjectNode();
+    out.put("notAfter", String.valueOf(status.notAfter()));
+    out.put("renewAt", String.valueOf(status.renewAt()));
+    out.put("nextAttempt", status.nextAttempt().toString());
+    out.put("consecutiveFailures", status.consecutiveFailures());
+    out.put("lastError", status.lastError());
+    out.put("lastSuccess", String.valueOf(status.lastSuccess()));
+    api.send(c.exchange, 200, out);
   }
 
   // ---- accounts ----

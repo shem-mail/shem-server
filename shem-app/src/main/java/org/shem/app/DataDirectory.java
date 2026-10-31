@@ -81,6 +81,11 @@ public final class DataDirectory implements AutoCloseable {
     return root.resolve("dkim");
   }
 
+  /** ACME account key and certificate generations (ADR 0018); never mailbox material. */
+  public Path acme() {
+    return root.resolve("acme");
+  }
+
   public Path adminFile() {
     return root.resolve("admin").resolve("admins.bin");
   }

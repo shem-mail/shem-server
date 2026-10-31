@@ -36,6 +36,27 @@ public final class TestCertificates {
     return write(directory, host, notBefore, validity, pair, pair);
   }
 
+  /** A self-signed certificate for {@code key} covering {@code host}. */
+  public static X509Certificate certificate(
+      String host, Instant notBefore, Duration validity, KeyPair key) throws Exception {
+    X500Name name = new X500Name("CN=" + host);
+    JcaX509v3CertificateBuilder builder =
+        new JcaX509v3CertificateBuilder(
+            name,
+            BigInteger.valueOf(System.nanoTime()),
+            Date.from(notBefore),
+            Date.from(notBefore.plus(validity)),
+            name,
+            key.getPublic());
+    builder.addExtension(
+        Extension.subjectAlternativeName,
+        false,
+        new GeneralNames(new GeneralName(GeneralName.dNSName, host)));
+    return new JcaX509CertificateConverter()
+        .getCertificate(
+            builder.build(new JcaContentSignerBuilder("SHA256withECDSA").build(key.getPrivate())));
+  }
+
   /** Writes a certificate for {@code certKey} but stores {@code fileKey} as the private key. */
   public static Files2 write(
       Path directory,

@@ -51,6 +51,8 @@
     <lucene.version>10.5.2</lucene.version>
     <tika.version>4.1.0</tika.version>
     <acme4j.version>5.1.0</acme4j.version>
+    <!-- Annotation-only; acme4j's classes reference it, so javac -Werror needs it at compile time. -->
+    <spotbugs-annotations.version>4.9.3</spotbugs-annotations.version>
     <mime4j.version>0.8.15</mime4j.version>
     <jspf.version>1.0.5</jspf.version>
     <jdkim.version>0.5</jdkim.version>
@@ -291,6 +293,11 @@
         <groupId>org.shredzone.acme4j</groupId>
         <artifactId>acme4j-client</artifactId>
         <version>${acme4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-annotations</artifactId>
+        <version>${spotbugs-annotations.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.james</groupId>

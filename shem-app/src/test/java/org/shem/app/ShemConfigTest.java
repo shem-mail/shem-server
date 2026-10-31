@@ -136,4 +136,59 @@ class ShemConfigTest {
         .as("MFA is mandatory; the opt-out no longer exists")
         .hasMessageContaining("unknown configuration keys");
   }
+
+  private static Properties withAcme() {
+    Properties p = base();
+    p.setProperty("tls.hostNames", "Mail.Example.org, mta-sts.example.org");
+    p.setProperty("acme.directory", "https://acme-staging-v02.api.letsencrypt.org/directory");
+    p.setProperty("acme.agreeToTerms", "true");
+    p.setProperty("acme.challengeBind", "0.0.0.0:80");
+    return p;
+  }
+
+  @Test
+  void acmeManagesTheCertificateFilesUnderTheDataDirectory() {
+    ShemConfig.Tls tls =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(withAcme(), BASE).tls());
+    assertThat(tls.certificateChain()).isEqualTo(Path.of("/srv/shem/data/acme/live/chain.pem"));
+    assertThat(tls.privateKey()).isEqualTo(Path.of("/srv/shem/data/acme/live/key.pem"));
+    assertThat(tls.hostNames()).containsExactly("mail.example.org", "mta-sts.example.org");
+    ShemConfig.Acme acme = java.util.Objects.requireNonNull(tls.acme());
+    assertThat(acme.challengeBind().getPort()).isEqualTo(80);
+    assertThat(acme.email()).isNull();
+  }
+
+  @Test
+  void acmeNeedsExplicitTermsAcceptanceAHttpsDirectoryAndNoManualFiles() {
+    Properties noTerms = withAcme();
+    noTerms.remove("acme.agreeToTerms");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(noTerms, BASE))
+        .hasMessageContaining("acme.agreeToTerms");
+    Properties plain = withAcme();
+    plain.setProperty("acme.directory", "http://acme.example/directory");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(plain, BASE)).hasMessageContaining("https");
+    Properties both = withAcme();
+    both.setProperty("tls.certificateChain", "x.pem");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(both, BASE))
+        .hasMessageContaining("remove tls.certificateChain");
+    Properties noBind = withAcme();
+    noBind.remove("acme.challengeBind");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(noBind, BASE))
+        .hasMessageContaining("acme.challengeBind");
+  }
+
+  @Test
+  void mtaStsNeedsTheHttpsListenerAndAKnownMode() {
+    Properties p = withTls();
+    p.setProperty("mtaSts.mode", "Enforce");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE)).hasMessageContaining("http.bind");
+    p.setProperty("http.bind", "0.0.0.0:443");
+    ShemConfig.MtaSts mtaSts =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).mtaSts());
+    assertThat(mtaSts.mode()).isEqualTo("enforce");
+    assertThat(mtaSts.maxAge()).isEqualTo(java.time.Duration.ofDays(7));
+    p.setProperty("mtaSts.mode", "strict");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
+        .hasMessageContaining("mtaSts.mode");
+  }
 }
