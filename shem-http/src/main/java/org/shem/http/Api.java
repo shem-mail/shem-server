@@ -202,8 +202,18 @@ final class Api implements HttpHandler {
       throw e;
     } finally {
       if (!aborted) {
+        drainRequestBody(exchange);
         exchange.close();
       }
+    }
+  }
+
+  /** Consumes a bounded unread request body so the keep-alive connection stays usable. */
+  private void drainRequestBody(HttpExchange exchange) {
+    try {
+      exchange.getRequestBody().readNBytes(settings.maxBodyBytes() + 1);
+    } catch (IOException e) {
+      // The client went away or the stream is already closed; closing the exchange handles it.
     }
   }
 
