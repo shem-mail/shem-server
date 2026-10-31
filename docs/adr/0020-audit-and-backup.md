@@ -58,7 +58,7 @@ AGENTS.md asks for CI with a pinned JDK and build environment, dependency and se
 
 ### CI (`.github/workflows/ci.yml`)
 
-- **Builds:** `mvn verify` on JDK 25 (release 25) and JDK 21 (release 21), with Maven 3.9.11 downloaded and checked against its published SHA-512. This runs formatting, Error Prone/NullAway, unit and integration tests, dependency convergence and the SBOM.
+- **Builds:** `mvn verify` (Java 21 target, ADR 0001) on JDK 21 and JDK 25, with Maven 3.9.11 downloaded and checked against its published SHA-512. This runs formatting, Error Prone/NullAway, unit and integration tests, dependency convergence and the SBOM.
 - **Distribution:** a tarball named by commit SHA (jar, `lib/`, CycloneDX SBOM) is uploaded as an artifact.
 - **Secret scan:** gitleaks over the full history.
 - **Dependency scan:** osv-scanner over the SBOM.

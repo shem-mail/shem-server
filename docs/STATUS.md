@@ -2,7 +2,7 @@
 
 Last updated with operations (plan step 17); all plan steps have an implementation. "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
-Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
+Build: `mvn verify` (Java 21 target) passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); a JDK 25 build has not been run yet).
 
 | Plan step | Module | State |
 | --- | --- | --- |

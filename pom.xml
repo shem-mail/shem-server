@@ -31,7 +31,8 @@
   </modules>
 
   <properties>
-    <java.release>25</java.release>
+    <!-- Java 21 LTS bytecode and API level (ADR 0001); builds and runs on JDK 21 and 25. -->
+    <java.release>21</java.release>
     <maven.compiler.release>${java.release}</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
