@@ -1,0 +1,9 @@
+# Reviewed historical false positives only; new commits remain subject to all rules.
+# PEM delimiters in DKIM key parsing/generation code, not an embedded private key.
+fae33d0d92ebb20a8d1c47a7809bd1f35f752d9b:shem-outbound/src/main/java/org/shem/outbound/DkimSigning.java:private-key:113
+# SMTP AUTH LOGIN challenge: Base64 for "Username:", not an API key.
+d92e886a2f6aac1de433b20c012e0c0caaaa35a4:shem-smtp/src/main/java/org/shem/smtp/SubmissionAuth.java:generic-api-key:126
+# PEM delimiters in PKCS#8 key parsing code, not an embedded private key.
+ce5d7c3c0eb7892f2bd025afb087d0eb63170a16:shem-tls/src/main/java/org/shem/tls/CertificateBundle.java:private-key:123
+# Java record declaration (Path key, X509Certificate certificate), not an API key.
+ce5d7c3c0eb7892f2bd025afb087d0eb63170a16:shem-tls/src/test/java/org/shem/tls/TestCertificates.java:generic-api-key:28
