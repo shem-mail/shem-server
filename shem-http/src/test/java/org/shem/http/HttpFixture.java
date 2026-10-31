@@ -127,6 +127,7 @@ final class HttpFixture implements AutoCloseable {
 
   final HttpRole http;
   final HttpClient client;
+  private final javax.net.ssl.SSLContext sslContext;
   final String base;
 
   static final String ADMIN = "root";
@@ -257,11 +258,8 @@ final class HttpFixture implements AutoCloseable {
             tls,
             RANDOM,
             clock);
-    client =
-        HttpClient.newBuilder()
-            .sslContext(TestCertificates.clientTrusting(certificate.certificate()))
-            .proxy(java.net.ProxySelector.of(null))
-            .build();
+    sslContext = TestCertificates.clientTrusting(certificate.certificate());
+    client = newClient();
     base = "https://localhost:" + http.port();
   }
 
@@ -281,6 +279,13 @@ final class HttpFixture implements AutoCloseable {
     }
   }
 
+  private HttpClient newClient() {
+    return HttpClient.newBuilder()
+        .sslContext(sslContext)
+        .proxy(java.net.ProxySelector.of(null))
+        .build();
+  }
+
   Response call(String method, String path, @Nullable String json, String... headers)
       throws Exception {
     HttpRequest.Builder request =
@@ -298,8 +303,12 @@ final class HttpFixture implements AutoCloseable {
     for (int i = 0; i + 1 < all.size(); i += 2) {
       request.header(all.get(i), all.get(i + 1));
     }
-    HttpResponse<String> response =
-        client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    // A fresh client per call: a pooled connection the server just closed would fail the next
+    // request with "header parser received no bytes".
+    HttpResponse<String> response;
+    try (HttpClient fresh = newClient()) {
+      response = fresh.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
     return new Response(response.statusCode(), response.body(), response);
   }
 
