@@ -38,7 +38,7 @@ public final class AttemptLimiter {
           private static final long serialVersionUID = 1L;
 
           @Override
-          protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
+          protected boolean removeEldestEntry(Map.Entry<String, AttemptLimiter.Entry> eldest) {
             return size() > policy.maxSources();
           }
         };
