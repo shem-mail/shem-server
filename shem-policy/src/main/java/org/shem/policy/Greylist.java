@@ -45,7 +45,7 @@ public final class Greylist {
           private static final long serialVersionUID = 1L;
 
           @Override
-          protected boolean removeEldestEntry(Map.Entry<ByteBuffer, Entry> eldest) {
+          protected boolean removeEldestEntry(Map.Entry<ByteBuffer, Greylist.Entry> eldest) {
             return size() > settings.maxEntries();
           }
         };
