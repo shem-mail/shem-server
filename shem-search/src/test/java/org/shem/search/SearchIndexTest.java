@@ -167,11 +167,16 @@ class SearchIndexTest {
     try (MailboxLease lease = fixture.login()) {
       SearchIndex index = lease.extension(SearchIndex.class).orElseThrow();
       fixture.deliver(message(new Random(1), 0));
-      assertThat(lease.importPending(10)).isEqualTo(1);
+      // Delivery to an unlocked mailbox also schedules a background import, so either path may
+      // import the receipt. importPending serializes on the import lock, so once it returns the
+      // message is imported regardless of which path won.
+      assertThat(lease.importPending(10)).isBetween(0, 1);
+      Set<OpaqueId> imported = blobs(lease).keySet();
+      assertThat(imported).hasSize(1);
       assertThat(index.awaitIdle(Duration.ofSeconds(30))).isTrue();
       SearchIndex.Snapshot snapshot = index.acquire();
       try {
-        for (OpaqueId blob : blobs(lease).keySet()) {
+        for (OpaqueId blob : imported) {
           assertThat(snapshot.covers(blob)).isTrue();
         }
       } finally {
