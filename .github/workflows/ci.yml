@@ -24,8 +24,8 @@ jobs:
         # Java 21 target (ADR 0001); JDK 25 checks that the build and tests also pass there.
         jdk: ["21", "25"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: ${{ matrix.jdk }}
@@ -36,7 +36,7 @@ jobs:
           tar -xzf maven.tgz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/apache-maven-${MAVEN_VERSION}/bin" >> "$GITHUB_PATH"
       - name: Cache Maven repository
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository
           key: m2-${{ hashFiles('**/pom.xml') }}
@@ -49,11 +49,11 @@ jobs:
           cp -r shem-app/target/lib dist/shem-${GITHUB_SHA}/
           cp shem-app/target/bom.json dist/shem-${GITHUB_SHA}/sbom.cdx.json
           tar -C dist -czf shem-${GITHUB_SHA}-jdk${{ matrix.jdk }}.tar.gz shem-${GITHUB_SHA}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: shem-${{ github.sha }}-jdk${{ matrix.jdk }}
           path: shem-${{ github.sha }}-jdk${{ matrix.jdk }}.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.jdk == '21'
         with:
           name: sbom
@@ -63,7 +63,7 @@ jobs:
     name: secret scan
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: gitleaks
@@ -74,7 +74,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: sbom
       - name: osv-scanner on the SBOM
