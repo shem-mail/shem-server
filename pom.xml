@@ -62,6 +62,10 @@
     <jdkim.version>0.5</jdkim.version>
     <james.version>3.9.1</james.version>
     <slf4j.version>2.0.17</slf4j.version>
+    <!-- Patched versions overriding vulnerable transitive ones (osv-scanner gate). -->
+    <jackson.version>2.22.3</jackson.version>
+    <netty.version>4.1.137.Final</netty.version>
+    <log4j.version>2.25.5</log4j.version>
 
     <!-- Plugins -->
     <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
@@ -217,7 +221,7 @@
       <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
-        <version>33.4.8-jre</version>
+        <version>33.7.2-jre</version>
       </dependency>
       <dependency>
         <groupId>com.google.errorprone</groupId>
@@ -227,12 +231,30 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>2.22.2</version>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson.version}</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.dataformat</groupId>
         <artifactId>jackson-dataformat-cbor</artifactId>
-        <version>2.22.2</version>
+        <version>${jackson.version}</version>
+      </dependency>
+      <!-- Security overrides: James 3.9.1 transitively pulls netty 4.1.135 and log4j-api 2.24.3 (OSV findings). -->
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-api</artifactId>
+        <version>${log4j.version}</version>
       </dependency>
       <dependency>
         <!-- WebAuthn registration/assertion verification (ADR 0014); never hand-rolled. -->
