@@ -51,3 +51,19 @@ Per domain, the admin API lists the required records at `GET /api/v1/admin/domai
 
 - **Before upgrading:** take a backup. Persisted formats are versioned, and readers reject unknown versions instead of guessing.
 - **Rollback:** rolling back to an older release after the new one has written newer formats requires restoring that backup.
+
+## Licensing and redistribution
+
+Shem is licensed under Apache-2.0 (`LICENSE`, `NOTICE`). The release archive and the Docker image
+(`/opt/shem`) also contain `licenses/THIRD-PARTY.txt`, which lists every bundled library with its
+declared license, the `LICENSE`/`NOTICE` files those libraries carry (supplemented from
+`shem-app/src/third-party/`), and the CycloneDX SBOM. All bundled libraries are under
+Apache-2.0-compatible permissive licenses; dual-licensed ones (CDDL/EPL or GPL-2.0 with Classpath
+Exception, LGPL or Apache-2.0) are used under the permissive option. When you redistribute the
+image, keep these files with it.
+
+The image's base layer is Ubuntu with the Eclipse Temurin JRE. Those components keep their own
+licenses: the JRE is GPL-2.0 with Classpath Exception, and some Ubuntu packages are GPL/LGPL.
+Their license files are in `/usr/share/doc/*/copyright` inside the image, and their sources are
+available from Ubuntu (`apt-get source`, launchpad.net) and Adoptium (github.com/adoptium). If you
+publish the image, point to those sources or mirror them, as your distribution requires.

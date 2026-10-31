@@ -11,6 +11,15 @@
 
   <name>Shem Server</name>
   <description>Self-hosted mail server with zero-access encrypted mailbox storage at rest.</description>
+  <inceptionYear>2026</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
 
   <modules>
     <module>shem-common</module>
@@ -81,6 +90,7 @@
     <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
     <spotless-maven-plugin.version>3.10.4</spotless-maven-plugin.version>
     <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
+    <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
   </properties>
 
   <dependencyManagement>
@@ -531,6 +541,11 @@
           <groupId>org.cyclonedx</groupId>
           <artifactId>cyclonedx-maven-plugin</artifactId>
           <version>${cyclonedx-maven-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>license-maven-plugin</artifactId>
+          <version>${license-maven-plugin.version}</version>
         </plugin>
       </plugins>
     </pluginManagement>
