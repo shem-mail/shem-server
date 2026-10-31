@@ -48,6 +48,9 @@ jobs:
           cp shem-app/target/shem-app.jar dist/shem-${GITHUB_SHA}/
           cp -r shem-app/target/lib dist/shem-${GITHUB_SHA}/
           cp shem-app/target/bom.json dist/shem-${GITHUB_SHA}/sbom.cdx.json
+          cp LICENSE NOTICE dist/shem-${GITHUB_SHA}/
+          find shem-app/target/third-party -type d -empty -delete
+          cp -r shem-app/target/third-party dist/shem-${GITHUB_SHA}/licenses
           tar -C dist -czf shem-${GITHUB_SHA}-jdk${{ matrix.jdk }}.tar.gz shem-${GITHUB_SHA}
       - uses: actions/upload-artifact@v7
         with:

@@ -1,0 +1,10 @@
+Shem Server
+Copyright 2026 The Shem Server authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Binary distributions (the release archive and the Docker image) also contain
+third-party libraries under their own licenses. Their names, versions and
+licenses are listed in licenses/THIRD-PARTY.txt, the LICENSE and NOTICE files
+they ship are reproduced under licenses/<artifact>/, and the CycloneDX SBOM
+records the same information in machine-readable form.
