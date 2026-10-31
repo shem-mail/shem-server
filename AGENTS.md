@@ -8,7 +8,7 @@
 
 ## Modern Java Baseline
 
-- Proposed baseline: Java 25 LTS, no preview features, Maven 3.9 multi-module build (no Maven Wrapper; developers and CI use a pinned Maven installation). Confirm compatibility in Phase 0; document any approved change to Java 21 LTS.
+- Baseline: Java 21 LTS (`java.release=21`), approved by the project owner because the development environment provides only JDK 21; JDK 25 is supported for building and running and is checked in CI ([ADR 0001](docs/adr/0001-java-baseline-and-build.md)). No preview features. Maven 3.9 multi-module build (no Maven Wrapper; developers and CI use a pinned Maven installation).
 - Pin compiler release, toolchains, plugins, and dependencies. Use UTF-8 and reproducible build settings. Prefer maintained libraries and standard JDK APIs; verify upstream documentation for the selected versions.
 - Keep domain services independent of James, HTTP, persistence implementations, and dependency-injection frameworks. Inject dependencies through constructors; compose at the runtime boundary. No global service locators or mutable static state.
 - Use records for immutable value types, sealed types for closed alternatives where helpful, descriptive names, explicit ownership, and narrow interfaces. Do not expose mutable byte arrays as ordinary value objects.

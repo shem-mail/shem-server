@@ -13,11 +13,26 @@
   <description>Self-hosted mail server with zero-access encrypted mailbox storage at rest.</description>
 
   <modules>
+    <module>shem-common</module>
+    <module>shem-crypto</module>
+    <module>shem-identity</module>
+    <module>shem-store</module>
+    <module>shem-delivery</module>
+    <module>shem-mailbox</module>
+    <module>shem-tls</module>
+    <module>shem-search</module>
+    <module>shem-extract</module>
+    <module>shem-imap</module>
+    <module>shem-policy</module>
+    <module>shem-outbound</module>
+    <module>shem-smtp</module>
+    <module>shem-http</module>
     <module>shem-app</module>
   </modules>
 
   <properties>
-    <java.release>25</java.release>
+    <!-- Java 21 LTS bytecode and API level (ADR 0001); builds and runs on JDK 21 and 25. -->
+    <java.release>21</java.release>
     <maven.compiler.release>${java.release}</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -32,14 +47,21 @@
     <nullaway.version>0.14.3</nullaway.version>
     <google-java-format.version>1.36.1</google-java-format.version>
 
-    <!-- Phase 0 candidates (PLAN.md); pinned but not yet selected by any module. -->
+    <!-- Selected in docs/adr (Phase 0). -->
+    <tink.version>1.24.0</tink.version>
     <bouncycastle.version>1.86</bouncycastle.version>
     <lucene.version>10.5.2</lucene.version>
     <tika.version>4.1.0</tika.version>
     <acme4j.version>5.1.0</acme4j.version>
+    <!-- Annotation-only; acme4j's classes reference it, so javac -Werror needs it at compile time. -->
+    <spotbugs-annotations.version>4.9.3</spotbugs-annotations.version>
+    <!-- Annotation-only; log4j-api (via POI) references it, so javac -Werror needs it. -->
+    <bnd-annotation.version>7.1.0</bnd-annotation.version>
     <mime4j.version>0.8.15</mime4j.version>
     <jspf.version>1.0.5</jspf.version>
     <jdkim.version>0.5</jdkim.version>
+    <james.version>3.9.1</james.version>
+    <slf4j.version>2.0.17</slf4j.version>
 
     <!-- Plugins -->
     <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
@@ -77,10 +99,193 @@
         <version>${jspecify.version}</version>
       </dependency>
 
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-crypto</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-identity</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-store</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-delivery</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-mailbox</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-tls</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-search</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-extract</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-imap</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-policy</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-outbound</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-http</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-smtp</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-imap</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <!-- Command handlers and hooks only; never james-server-protocols-smtp, which brings the
+             mailet container, mail queue, and server distribution (ADR 0009). -->
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-smtp</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james.protocols</groupId>
+        <artifactId>protocols-netty</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>james-server-protocols-imap4</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>apache-james-mailbox-api</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <!-- Only stateless helpers (MessageResultImpl, MessageSearches, EventFactory); never
+             StoreMessageManager, which spools APPENDs to plaintext temp files (ADR 0005). -->
+        <groupId>org.apache.james</groupId>
+        <artifactId>apache-james-mailbox-store</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.james</groupId>
+        <artifactId>event-bus-in-vm</artifactId>
+        <version>${james.version}</version>
+      </dependency>
+      <!-- Convergence pins for James 3.9.1 transitive dependencies (newest version in the graph). -->
+      <dependency>
+        <groupId>io.projectreactor</groupId>
+        <artifactId>reactor-core</artifactId>
+        <version>3.7.19</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.4.8-jre</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.errorprone</groupId>
+        <artifactId>error_prone_annotations</artifactId>
+        <version>2.41.0</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>2.22.2</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-cbor</artifactId>
+        <version>2.22.2</version>
+      </dependency>
+      <dependency>
+        <!-- WebAuthn registration/assertion verification (ADR 0014); never hand-rolled. -->
+        <groupId>com.webauthn4j</groupId>
+        <artifactId>webauthn4j-core</artifactId>
+        <version>0.29.7.RELEASE</version>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.activation</groupId>
+        <artifactId>jakarta.activation-api</artifactId>
+        <version>2.1.4</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>3.18.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.angus</groupId>
+        <artifactId>angus-activation</artifactId>
+        <version>2.0.3</version>
+      </dependency>
+      <dependency>
+        <groupId>org.scala-lang</groupId>
+        <artifactId>scala-library</artifactId>
+        <version>2.13.16</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <!-- James logs user names and mailbox paths; Shem discards library logging (AGENTS.md). -->
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-nop</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.crypto.tink</groupId>
+        <artifactId>tink</artifactId>
+        <version>${tink.version}</version>
+      </dependency>
+
       <!-- Phase 0 candidates: verify licenses, APIs, and temp-file/cache behavior before use. -->
       <dependency>
         <groupId>org.bouncycastle</groupId>
         <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcpkix-jdk18on</artifactId>
         <version>${bouncycastle.version}</version>
       </dependency>
       <dependency>
@@ -94,9 +299,65 @@
         <version>${tika.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-pdf-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-microsoft-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-miscoffice-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-text-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-html-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-mail-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <!-- Convergence pins for Tika's transitive dependencies (newest of the requested versions). -->
+      <dependency>
+        <groupId>commons-codec</groupId>
+        <artifactId>commons-codec</artifactId>
+        <version>1.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>2.22.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-collections4</artifactId>
+        <version>4.6.0</version>
+      </dependency>
+      <dependency>
         <groupId>org.shredzone.acme4j</groupId>
         <artifactId>acme4j-client</artifactId>
         <version>${acme4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-annotations</artifactId>
+        <version>${spotbugs-annotations.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>biz.aQute.bnd</groupId>
+        <artifactId>biz.aQute.bnd.annotation</artifactId>
+        <version>${bnd-annotation.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.james</groupId>
@@ -112,6 +373,12 @@
         <groupId>org.apache.james.jspf</groupId>
         <artifactId>apache-jspf-resolver</artifactId>
         <version>${jspf.version}</version>
+      </dependency>
+      <dependency>
+        <!-- DNS for SPF/DKIM/DMARC; jSPF's own resolver is not used (ADR 0010). -->
+        <groupId>dnsjava</groupId>
+        <artifactId>dnsjava</artifactId>
+        <version>3.6.3</version>
       </dependency>
       <dependency>
         <groupId>org.apache.james.jdkim</groupId>
@@ -167,6 +434,8 @@
             <compilerArgs>
               <arg>-Xlint:all,-processing</arg>
               <arg>-XDcompilePolicy=simple</arg>
+              <!-- Required by Error Prone on JDK 21 builds; harmless on JDK 25. -->
+              <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
               <arg>--should-stop=ifError=FLOW</arg>
               <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
             </compilerArgs>

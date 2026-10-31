@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.shem</groupId>
+    <artifactId>shem-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>shem-extract</artifactId>
+  <name>Shem Attachment Extraction</name>
+  <description>Bounded attachment text extraction with Apache Tika in separate, isolation-checked worker processes (ADR 0019).</description>
+  <dependencies>
+    <dependency>
+      <groupId>org.shem</groupId>
+      <artifactId>shem-search</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-core</artifactId>
+    </dependency>
+    <!-- Only the formats ADR 0019 supports; no archive, image, OCR, or external-tool parsers. -->
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-pdf-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-microsoft-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-miscoffice-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-text-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-html-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parser-mail-module</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>biz.aQute.bnd</groupId>
+      <artifactId>biz.aQute.bnd.annotation</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

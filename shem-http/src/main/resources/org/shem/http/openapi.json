@@ -1,0 +1,2515 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Shem server API",
+    "version": "1.0.0",
+    "description": "Versioned HTTP contract (ADR 0013-0019). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Liveness",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": []
+      }
+    },
+    "/.well-known/mta-sts.txt": {
+      "get": {
+        "summary": "MTA-STS policy (RFC 8461); only on mta-sts.<local domain>",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "Policy",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "x-shem-host": "mta-sts.{domain}"
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "summary": "This contract",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Password login; returns a pending MFA challenge (or a restricted session before any factor exists)",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "maxLength": 320
+                  },
+                  "password": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  },
+                  "bearer": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/recovery": {
+      "post": {
+        "summary": "Recovery-code login; key-administration-only session",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "maxLength": 320
+                  },
+                  "code": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  },
+                  "bearer": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "username",
+                  "code"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/webauthn-options": {
+      "post": {
+        "summary": "WebAuthn assertion options for a pending challenge",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "challenge"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/verify": {
+      "post": {
+        "summary": "Complete MFA with a TOTP code or WebAuthn assertion",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "totp": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "webauthn": {
+                    "type": "object"
+                  },
+                  "bearer": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "challenge"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "summary": "End the session and release its lease",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "summary": "Own identity, state, capabilities",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Start delayed deletion of the own account (full session, step-up)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "state": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/enrollment": {
+      "post": {
+        "summary": "Replace the bootstrap password; ends the session",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "reauthenticate": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "newPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "newPassword"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/password": {
+      "put": {
+        "summary": "Change password (step-up); recovery sessions end afterwards",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "reauthenticate": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "newPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  },
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "newPassword"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/app-passwords": {
+      "get": {
+        "summary": "List app passwords (labels only)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "appPasswords": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AppPassword"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a generated IMAP/SMTP app password, shown once (step-up)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "readOnly": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/app-passwords/{slotId}": {
+      "delete": {
+        "summary": "Revoke an app password and its sessions (step-up)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slotId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/me/recovery-code": {
+      "post": {
+        "summary": "Create or replace the recovery code, shown once (step-up)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "readOnly": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/mfa": {
+      "get": {
+        "summary": "List second factors",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/mfa/totp": {
+      "post": {
+        "summary": "Begin TOTP enrollment",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "secret": {
+                      "type": "string"
+                    },
+                    "uri": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/mfa/totp/confirm": {
+      "post": {
+        "summary": "Confirm TOTP enrollment with a code",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/mfa/webauthn/options": {
+      "post": {
+        "summary": "WebAuthn registration options",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/mfa/webauthn": {
+      "post": {
+        "summary": "Register a WebAuthn credential",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "attestationObject": {
+                    "type": "string"
+                  },
+                  "clientDataJSON": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "attestationObject",
+                  "clientDataJSON"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/mfa/{factorId}": {
+      "delete": {
+        "summary": "Remove a factor (never the last one, except in a recovery session)",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "factorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/me/exports": {
+      "post": {
+        "summary": "Negotiate a plaintext export (step-up); returns a single-use ticket for this session",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportTicket"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "shem-mbox-zip-v1"
+                    ]
+                  },
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "format"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/exports/{exportId}/content": {
+      "get": {
+        "summary": "Stream the export as a ZIP; aborted transfers end without a ZIP central directory",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "Export stream",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "exportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/me/attachment-searches": {
+      "post": {
+        "summary": "Search extracted attachment text; 409 while messages are pending unless allowIncomplete",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentSearchResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 256
+                  },
+                  "allowIncomplete": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/key-rotations": {
+      "post": {
+        "summary": "Start a key rotation job; always re-proves the password",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "202": {
+            "description": "Job started",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "currentPassword"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/jobs/{jobId}": {
+      "get": {
+        "summary": "Job status for its owning mailbox only",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/auth/login": {
+      "post": {
+        "summary": "Administrator password; returns a TOTP challenge",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "mfaRequired": {
+                      "type": "boolean"
+                    },
+                    "challenge": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "password": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "name",
+                  "password"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/auth/mfa/verify": {
+      "post": {
+        "summary": "Complete administrator TOTP",
+        "x-shem-principal": "public",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "totp": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "bearer": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "challenge",
+                  "totp"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/auth/logout": {
+      "post": {
+        "summary": "End the admin session",
+        "x-shem-principal": "admin",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/me": {
+      "get": {
+        "summary": "The admin session",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/tls": {
+      "get": {
+        "summary": "Listener certificate and ACME renewal state (no keys)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/domains": {
+      "get": {
+        "summary": "List domains",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "domains": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Domain"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a domain",
+        "x-shem-principal": "admin",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 253
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/domains/{domainId}": {
+      "get": {
+        "summary": "Get a domain",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete an unused domain (step-up)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current version, e.g. \"3\""
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/domains/{domainId}/dkim-rotations": {
+      "post": {
+        "summary": "New DKIM key under a new selector (step-up)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "selector": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  }
+                },
+                "required": [
+                  "selector"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/domains/{domainId}/dns": {
+      "get": {
+        "summary": "Required DNS records (public data only)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "records": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DnsRecord"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/accounts": {
+      "get": {
+        "summary": "List accounts",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Account"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Provision an account; the bootstrap password is shown once",
+        "x-shem-principal": "admin",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "maxLength": 320
+                  },
+                  "quotaBytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "address"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/accounts/{accountId}": {
+      "get": {
+        "summary": "Get an account",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Change quota or state (deletion_pending needs step-up)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "version": {
+                    "type": "integer"
+                  },
+                  "quotaBytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "blocked",
+                      "deletion_pending"
+                    ]
+                  }
+                },
+                "required": [
+                  "version"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Start delayed deletion (step-up)",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current version, e.g. \"3\""
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/aliases": {
+      "get": {
+        "summary": "List aliases",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "aliases": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Alias"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create an alias",
+        "x-shem-principal": "admin",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Alias"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "maxLength": 320
+                  },
+                  "targets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "senders": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "address"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/aliases/{aliasId}": {
+      "patch": {
+        "summary": "Replace targets and senders",
+        "x-shem-principal": "admin",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Alias"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "version": {
+                    "type": "integer"
+                  },
+                  "targets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "senders": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "version"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "aliasId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete an alias",
+        "x-shem-principal": "admin",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          },
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "aliasId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current version, e.g. \"3\""
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "status"
+        ]
+      },
+      "LoginResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "mfaRequired": {
+            "type": "boolean"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enrollmentRequired": {
+            "type": "boolean"
+          },
+          "mfaEnrollmentRequired": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "csrfToken": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "only when bearer=true"
+          }
+        }
+      },
+      "AdminSession": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "admin": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "csrfToken": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "AppPassword": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ExportTicket": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "key-rotation"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "interrupted"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "createdAt"
+        ]
+      },
+      "Domain": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "dkimSelector": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Account": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "quotaBytes": {
+            "type": "integer"
+          },
+          "keyFingerprint": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "bootstrapExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bootstrapPassword": {
+            "type": "string",
+            "readOnly": true,
+            "description": "creation response only"
+          }
+        }
+      },
+      "Alias": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "senders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MessageReference": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "folder": {
+            "type": "string"
+          },
+          "uidValidity": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "integer"
+          }
+        }
+      },
+      "AttachmentSearchResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageReference"
+            }
+          },
+          "incomplete": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageReference"
+            }
+          }
+        }
+      },
+      "CertificateStatus": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "notAfter": {
+            "type": "string"
+          },
+          "renewAt": {
+            "type": "string"
+          },
+          "nextAttempt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "consecutiveFailures": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true,
+            "description": "exception class only"
+          },
+          "lastSuccess": {
+            "type": "string"
+          }
+        }
+      },
+      "DnsRecord": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem details",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "mailboxCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-shem-session"
+      },
+      "mailboxBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "adminCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-shem-admin"
+      },
+      "adminBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
