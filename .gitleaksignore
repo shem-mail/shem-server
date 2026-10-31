@@ -5,5 +5,7 @@ fae33d0d92ebb20a8d1c47a7809bd1f35f752d9b:shem-outbound/src/main/java/org/shem/ou
 d92e886a2f6aac1de433b20c012e0c0caaaa35a4:shem-smtp/src/main/java/org/shem/smtp/SubmissionAuth.java:generic-api-key:126
 # PEM delimiters in PKCS#8 key parsing code, not an embedded private key.
 ce5d7c3c0eb7892f2bd025afb087d0eb63170a16:shem-tls/src/main/java/org/shem/tls/CertificateBundle.java:private-key:123
-# Java record declaration (Path key, X509Certificate certificate), not an API key.
+# Java record declaration containing filesystem paths and a certificate.
 ce5d7c3c0eb7892f2bd025afb087d0eb63170a16:shem-tls/src/test/java/org/shem/tls/TestCertificates.java:generic-api-key:28
+# The previous explanatory comment followed by a commit fingerprint, not a credential.
+7cf6a045a901afa3410af5b467c51d77b6e18dd1:.gitleaksignore:generic-api-key:8
