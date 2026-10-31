@@ -40,7 +40,8 @@ public record ShemConfig(
     Policy policy,
     @Nullable Outbound outbound,
     @Nullable Http http,
-    @Nullable MtaSts mtaSts) {
+    @Nullable MtaSts mtaSts,
+    @Nullable Extraction extraction) {
 
   /**
    * Listener certificate files (PEM) and the host names they must cover. With {@code acme}, the
@@ -71,6 +72,24 @@ public record ShemConfig(
       }
     }
   }
+
+  /**
+   * Attachment extraction (ADR 0019).
+   *
+   * @param sandbox an executable that runs its arguments (the worker JVM command) inside an OS
+   *     sandbox; null runs the worker directly, which only passes when isolation is not required
+   * @param scratch the private tmpfs parent of per-worker temp directories
+   */
+  public record Extraction(
+      @Nullable Path sandbox,
+      Path scratch,
+      int workers,
+      Duration timeout,
+      int maxInputBytes,
+      int maxOutputChars,
+      int heapMiB,
+      int requestsPerWorker,
+      boolean requireIsolation) {}
 
   /** The hosted MTA-STS policy (ADR 0018); {@code mx} is the first TLS host name. */
   public record MtaSts(String mode, Duration maxAge) {
@@ -205,6 +224,16 @@ public record ShemConfig(
           "acme.challengeBind",
           "mtaSts.mode",
           "mtaSts.maxAge",
+          "extraction.enabled",
+          "extraction.sandbox",
+          "extraction.scratch",
+          "extraction.workers",
+          "extraction.timeout",
+          "extraction.maxInputBytes",
+          "extraction.maxOutputChars",
+          "extraction.heapMiB",
+          "extraction.requestsPerWorker",
+          "extraction.requireIsolation",
           "imap.bind",
           "imap.maxConnections",
           "imap.maxConnectionsPerIp",
@@ -268,6 +297,10 @@ public record ShemConfig(
     if (smtp != null && tls == null) {
       throw new IllegalArgumentException("smtp requires tls: STARTTLS is always offered");
     }
+    if (extraction != null && !extraction.requireIsolation() && mode == Mode.PRODUCTION) {
+      throw new IllegalArgumentException(
+          "extraction.requireIsolation=false is only allowed in development mode");
+    }
     if (mtaSts != null && http == null) {
       throw new IllegalArgumentException("mtaSts.mode requires the HTTPS listener (http.bind)");
     }
@@ -315,7 +348,8 @@ public record ShemConfig(
         policy(p, base),
         outbound(p),
         http(p),
-        mtaSts(p));
+        mtaSts(p),
+        extraction(p, base));
   }
 
   private static @Nullable Tls tls(Properties p, Path base, Path data) {
@@ -359,6 +393,28 @@ public record ShemConfig(
       throw new IllegalArgumentException("tls.certificateChain and tls.privateKey go together");
     }
     return new Tls(base.resolve(chain.trim()), base.resolve(key.trim()), hosts, null);
+  }
+
+  private static @Nullable Extraction extraction(Properties p, Path base) {
+    if (!bool(p, "extraction.enabled", false)) {
+      return null;
+    }
+    String scratch = p.getProperty("extraction.scratch");
+    if (scratch == null || scratch.isBlank()) {
+      throw new IllegalArgumentException(
+          "extraction.scratch is required (a private, size-limited tmpfs directory)");
+    }
+    String sandbox = p.getProperty("extraction.sandbox");
+    return new Extraction(
+        sandbox == null || sandbox.isBlank() ? null : base.resolve(sandbox.strip()),
+        base.resolve(scratch.strip()),
+        integer(p, "extraction.workers", 2),
+        duration(p, "extraction.timeout", Duration.ofSeconds(30)),
+        integer(p, "extraction.maxInputBytes", 25 << 20),
+        integer(p, "extraction.maxOutputChars", 1_000_000),
+        integer(p, "extraction.heapMiB", 512),
+        integer(p, "extraction.requestsPerWorker", 100),
+        bool(p, "extraction.requireIsolation", true));
   }
 
   private static @Nullable MtaSts mtaSts(Properties p) {

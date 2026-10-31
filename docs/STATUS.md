@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated with ACME and MTA-STS hosting (plan step 15). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
+Last updated with attachment extraction (plan step 16). "Validated" means an automated test in this repository exercises it; nothing here is production-ready (PLAN Phase 6 gate).
 
 Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-java-baseline-and-build.md); JDK 25 not yet run).
 
@@ -22,6 +22,7 @@ Build: `mvn -Djava.release=21 verify` passes on JDK 21 (see [ADR 0001](adr/0001-
 | 13 Outbound | `shem-outbound` | Implemented per [ADR 0012](adr/0012-outbound-delivery.md): durable plaintext queue (the documented exception), DKIM signing of queued bytes, MX/null-MX routing, retries/expiry, opportunistic STARTTLS, MTA-STS enforcement, DSNs via encrypted delivery. No DANE, TLSRPT, or real-MTA interoperability run. |
 | 14 HTTP API | `shem-http` | Implemented per [ADR 0013](adr/0013-http-api-sessions.md): HTTPS server, lease-backed in-memory sessions, login/recovery/logout, `/me`, enrollment, password change, app passwords, recovery code, CSRF/Origin, step-up. Mandatory MFA (TOTP and WebAuthn) per [ADR 0014](adr/0014-mfa.md); mail clients use only generated app passwords per [ADR 0015](adr/0015-mail-client-credentials.md). Admin authentication (password + TOTP) and domain/account/alias/DKIM endpoints per [ADR 0016](adr/0016-admin-api.md). Streaming plaintext export, key rotation jobs, self-deletion, and the served OpenAPI contract with contract tests per [ADR 0017](adr/0017-exports-jobs-openapi.md). Not yet: encrypted export, admin audit log, admin factor rotation over HTTP. |
 | 15 ACME, MTA-STS | `shem-tls`, `shem-http` | Implemented per [ADR 0018](adr/0018-acme-and-mta-sts.md): acme4j HTTP-01 issuance, validated atomic certificate generations, jittered lifetime-relative renewal with backoff, first boot without a certificate, port-80 challenge/redirect listener, hosted MTA-STS policies, admin certificate status. acme4j has not been run against a real ACME server yet (Pebble test is opt-in and was not run). |
-| 16–17 | — | Not started: extraction, operations. |
+| 16 Attachment extraction | `shem-extract`, `shem-search`, `shem-http` | Implemented per [ADR 0019](adr/0019-attachment-extraction.md): Tika 4.1.0 in separate worker JVMs with input/output/time/heap/depth limits, startup isolation probe (network, data directory, tmpfs scratch) mandatory in production, example `unshare` sandbox, separate encrypted attachment index with explicit complete/incomplete/pending coverage, attachment search API. No syscall tracing or seccomp yet. |
+| 17 | — | Not started: operations. |
 
 Phase 2 exit gate evidence: `MailboxVerticalSliceTest` (locked delivery → enrollment → unlock → import → read → restart with stable UIDs; replay idempotency; rotation; plaintext-marker scan of the data directory), store fault-injection tests at blob/receipt/journal/manifest boundaries, and disk-full injection before publish. Not yet covered: concurrent delivery during rotation under load, kill -9 process tests (only in-process crash simulation), CI pipeline (no CI configuration exists yet).

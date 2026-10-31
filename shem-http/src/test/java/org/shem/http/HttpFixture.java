@@ -94,6 +94,26 @@ final class HttpFixture implements AutoCloseable {
   final AdminStore admins;
   final FakeDkim dkim = new FakeDkim();
 
+  /** Attachment "extraction" for tests: UTF-8 text, or encrypted for {@code x-locked}. */
+  static final class FakeExtractor implements org.shem.search.AttachmentExtractor {
+    volatile boolean available = true;
+
+    @Override
+    public Outcome extract(
+        java.io.InputStream content, @Nullable String type, @Nullable String extension)
+        throws UnavailableException, java.io.IOException {
+      if (!available) {
+        throw new UnavailableException("no worker");
+      }
+      String text = new String(content.readAllBytes(), StandardCharsets.UTF_8);
+      return "application/x-locked".equals(type)
+          ? new Outcome.Encrypted()
+          : new Outcome.Text(text, false);
+    }
+  }
+
+  final FakeExtractor attachments = new FakeExtractor();
+
   /** What the admin TLS route reports; tests replace it. */
   volatile org.shem.tls.CertificateRenewal.Status certificateStatus =
       new org.shem.tls.CertificateRenewal.Status(
@@ -165,7 +185,9 @@ final class HttpFixture implements AutoCloseable {
                 new QuotaLedger(paths::mailbox),
                 identity,
                 env,
-                10 << 20),
+                10 << 20,
+                List.of(new org.shem.search.AttachmentIndexFactory(attachments)),
+                background),
             background);
     lifecycle = new KeyLifecycle(identity, registry, kdf, cheap, ids, RANDOM, clock, Duration.ZERO);
     sessions =

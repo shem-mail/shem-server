@@ -46,8 +46,26 @@ public final class Main {
       }
       case "serve" -> {
         java.util.concurrent.CountDownLatch stop = new java.util.concurrent.CountDownLatch(1);
-        Runtime.getRuntime().addShutdownHook(new Thread(stop::countDown, "shem-shutdown"));
-        yield new ServeCommand(config, System.out).run(stop);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        // The hook waits for serve to finish closing listeners, sessions, and workers; otherwise
+        // the JVM could halt mid-cleanup (for example leaving worker scratch behind).
+        Runtime.getRuntime()
+            .addShutdownHook(
+                new Thread(
+                    () -> {
+                      stop.countDown();
+                      try {
+                        var unused = done.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                      } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                      }
+                    },
+                    "shem-shutdown"));
+        try {
+          yield new ServeCommand(config, System.out).run(stop);
+        } finally {
+          done.countDown();
+        }
       }
       case "admin" ->
           new AdminCommand(config, System.out, DevBootstrapCommand.stdin())

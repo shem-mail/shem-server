@@ -21,6 +21,7 @@
     <module>shem-mailbox</module>
     <module>shem-tls</module>
     <module>shem-search</module>
+    <module>shem-extract</module>
     <module>shem-imap</module>
     <module>shem-policy</module>
     <module>shem-outbound</module>
@@ -53,6 +54,8 @@
     <acme4j.version>5.1.0</acme4j.version>
     <!-- Annotation-only; acme4j's classes reference it, so javac -Werror needs it at compile time. -->
     <spotbugs-annotations.version>4.9.3</spotbugs-annotations.version>
+    <!-- Annotation-only; log4j-api (via POI) references it, so javac -Werror needs it. -->
+    <bnd-annotation.version>7.1.0</bnd-annotation.version>
     <mime4j.version>0.8.15</mime4j.version>
     <jspf.version>1.0.5</jspf.version>
     <jdkim.version>0.5</jdkim.version>
@@ -133,6 +136,11 @@
       <dependency>
         <groupId>org.shem</groupId>
         <artifactId>shem-search</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.shem</groupId>
+        <artifactId>shem-extract</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -290,6 +298,52 @@
         <version>${tika.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-pdf-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-microsoft-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-miscoffice-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-text-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-html-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parser-mail-module</artifactId>
+        <version>${tika.version}</version>
+      </dependency>
+      <!-- Convergence pins for Tika's transitive dependencies (newest of the requested versions). -->
+      <dependency>
+        <groupId>commons-codec</groupId>
+        <artifactId>commons-codec</artifactId>
+        <version>1.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>2.22.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-collections4</artifactId>
+        <version>4.6.0</version>
+      </dependency>
+      <dependency>
         <groupId>org.shredzone.acme4j</groupId>
         <artifactId>acme4j-client</artifactId>
         <version>${acme4j.version}</version>
@@ -298,6 +352,11 @@
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-annotations</artifactId>
         <version>${spotbugs-annotations.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>biz.aQute.bnd</groupId>
+        <artifactId>biz.aQute.bnd.annotation</artifactId>
+        <version>${bnd-annotation.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.james</groupId>

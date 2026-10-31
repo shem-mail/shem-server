@@ -191,4 +191,24 @@ class ShemConfigTest {
     assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
         .hasMessageContaining("mtaSts.mode");
   }
+
+  @Test
+  void extractionRequiresScratchAndIsolationInProduction() {
+    Properties p = base();
+    p.setProperty("extraction.enabled", "true");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
+        .hasMessageContaining("extraction.scratch");
+    p.setProperty("extraction.scratch", "/dev/shm/shem");
+    p.setProperty("extraction.sandbox", "bin/sandbox");
+    ShemConfig.Extraction extraction =
+        java.util.Objects.requireNonNull(ShemConfig.fromProperties(p, BASE).extraction());
+    assertThat(extraction.requireIsolation()).isTrue();
+    assertThat(extraction.sandbox()).isEqualTo(Path.of("/srv/shem/bin/sandbox"));
+    assertThat(extraction.workers()).isEqualTo(2);
+    p.setProperty("extraction.requireIsolation", "false");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(p, BASE))
+        .hasMessageContaining("only allowed in development mode");
+    p.setProperty("mode", "development");
+    assertThat(ShemConfig.fromProperties(p, BASE).extraction()).isNotNull();
+  }
 }

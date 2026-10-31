@@ -54,6 +54,11 @@ final class SearchFixture implements AutoCloseable {
   private final ExecutorService indexing = Executors.newFixedThreadPool(1);
 
   SearchFixture(Path root) throws Exception {
+    this(root, List.of(new SearchIndexFactory()));
+  }
+
+  SearchFixture(Path root, List<org.shem.mailbox.MailboxExtensionFactory> extensions)
+      throws Exception {
     Clock clock = Clock.systemUTC();
     IdGenerator ids = IdGenerator.secure(RANDOM);
     paths = new MailboxPaths(root.resolve("mailboxes"));
@@ -78,15 +83,7 @@ final class SearchFixture implements AutoCloseable {
     registry =
         new MailboxRegistry(
             new MailboxRegistry.Dependencies(
-                paths,
-                blobs,
-                receipts,
-                quota,
-                identity,
-                env,
-                10 << 20,
-                List.of(new SearchIndexFactory()),
-                indexing),
+                paths, blobs, receipts, quota, identity, env, 10 << 20, extensions, indexing),
             background);
     lifecycle = new KeyLifecycle(identity, registry, kdf, cheap, ids, RANDOM, clock, Duration.ZERO);
     sessions =

@@ -9,6 +9,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.jspecify.annotations.Nullable;
 import org.shem.common.FaultInjector;
 import org.shem.common.FormatException;
 import org.shem.common.IdGenerator;
@@ -16,15 +17,19 @@ import org.shem.crypto.Argon2Parameters;
 import org.shem.crypto.Argon2idKdf;
 import org.shem.crypto.KdfAdmission;
 import org.shem.delivery.DeliveryService;
+import org.shem.extract.ExtractionSettings;
+import org.shem.extract.WorkerPool;
 import org.shem.identity.AdminStore;
 import org.shem.identity.DeliveryPolicy;
 import org.shem.identity.IdentityService;
 import org.shem.identity.QuotaLedger;
 import org.shem.mailbox.AttemptLimiter;
 import org.shem.mailbox.KeyLifecycle;
+import org.shem.mailbox.MailboxExtensionFactory;
 import org.shem.mailbox.MailboxProvisioning;
 import org.shem.mailbox.MailboxRegistry;
 import org.shem.mailbox.SessionService;
+import org.shem.search.AttachmentIndexFactory;
 import org.shem.search.SearchIndexFactory;
 import org.shem.smtp.InboundSmtpRole;
 import org.shem.store.BlobStore;
@@ -46,6 +51,10 @@ public final class Services implements AutoCloseable {
   public final KeyLifecycle lifecycle;
   public final SessionService sessions;
   public final MailboxProvisioning provisioning;
+
+  /** Attachment extraction workers (ADR 0019); started by {@code serve}, absent if disabled. */
+  public final @Nullable WorkerPool extraction;
+
   public final AdminStore admins;
   public final IdGenerator ids;
   public final SecureRandom random;
@@ -60,6 +69,24 @@ public final class Services implements AutoCloseable {
     this.random = random;
     this.clock = clock;
     this.ids = IdGenerator.secure(random);
+    ShemConfig.Extraction extractionConfig = config.extraction();
+    this.extraction =
+        extractionConfig == null
+            ? null
+            : new WorkerPool(
+                new ExtractionSettings(
+                    extractionConfig.sandbox() == null
+                        ? List.of()
+                        : List.of(extractionConfig.sandbox().toString()),
+                    extractionConfig.scratch(),
+                    data.root().resolve(".extraction-canary"),
+                    extractionConfig.workers(),
+                    extractionConfig.timeout(),
+                    extractionConfig.maxInputBytes(),
+                    extractionConfig.maxOutputChars(),
+                    extractionConfig.heapMiB(),
+                    extractionConfig.requestsPerWorker(),
+                    extractionConfig.requireIsolation()));
     this.identity =
         IdentityService.open(
             data.routingFile(),
@@ -106,7 +133,7 @@ public final class Services implements AutoCloseable {
                 identity,
                 metadataEnvironment,
                 config.maxMessageBytes(),
-                List.of(new SearchIndexFactory()),
+                extensions(),
                 indexing),
             background);
     this.lifecycle =
@@ -143,6 +170,13 @@ public final class Services implements AutoCloseable {
             config.maxMessageBytes() + InboundSmtpRole.HEADER_ALLOWANCE);
   }
 
+  private List<MailboxExtensionFactory> extensions() {
+    WorkerPool pool = extraction;
+    return pool == null
+        ? List.of(new SearchIndexFactory())
+        : List.of(new SearchIndexFactory(), new AttachmentIndexFactory(pool));
+  }
+
   public static Services start(ShemConfig config) throws IOException, FormatException {
     DataDirectory data = DataDirectory.open(config.dataDirectory());
     try {
@@ -165,6 +199,10 @@ public final class Services implements AutoCloseable {
   public void close() throws IOException {
     try {
       registry.close();
+      WorkerPool pool = extraction;
+      if (pool != null) {
+        pool.close();
+      }
       background.shutdown();
       indexing.shutdown();
     } finally {

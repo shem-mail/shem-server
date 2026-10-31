@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import org.jspecify.annotations.Nullable;
+import org.shem.extract.WorkerPool;
 import org.shem.http.AdminApi;
 import org.shem.http.ChallengeRole;
 import org.shem.http.DkimKeys;
@@ -74,6 +75,20 @@ final class ServeCommand {
     ShemConfig.Acme acme = tlsConfig.acme();
     try (Services services = Services.start(config);
         Acme automatic = acme == null ? null : startAcme(services, tlsConfig, acme)) {
+      WorkerPool extraction = services.extraction;
+      if (extraction != null) {
+        // Fails startup when required isolation is missing (ADR 0019).
+        WorkerPool.Isolation isolation;
+        try {
+          isolation = extraction.start();
+        } catch (WorkerPool.IsolationException e) {
+          out.println(e.getMessage() + " (see extraction.sandbox, ADR 0019)");
+          return 2;
+        }
+        out.println(
+            "attachment extraction "
+                + (isolation.isolated() ? "isolated" : "running WITHOUT isolation (development)"));
+      }
       if (automatic != null && !automatic.renewal.awaitCertificate(stop)) {
         out.println("stopped before a certificate was issued");
         return 0;

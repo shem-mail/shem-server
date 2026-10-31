@@ -3,7 +3,7 @@
   "info": {
     "title": "Shem server API",
     "version": "1.0.0",
-    "description": "Versioned HTTP contract (ADR 0013-0018). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
+    "description": "Versioned HTTP contract (ADR 0013-0019). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
   },
   "paths": {
     "/healthz": {
@@ -1053,6 +1053,59 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/me/attachment-searches": {
+      "post": {
+        "summary": "Search extracted attachment text; 409 while messages are pending unless allowIncomplete",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentSearchResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 256
+                  },
+                  "allowIncomplete": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/me/key-rotations": {
@@ -2337,6 +2390,48 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "MessageReference": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "folder": {
+            "type": "string"
+          },
+          "uidValidity": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "integer"
+          }
+        }
+      },
+      "AttachmentSearchResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageReference"
+            }
+          },
+          "incomplete": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageReference"
             }
           }
         }

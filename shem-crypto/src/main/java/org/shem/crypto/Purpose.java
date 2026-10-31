@@ -15,6 +15,7 @@ public enum Purpose {
   METADATA_SNAPSHOT("metadata-snapshot"),
   METADATA_MANIFEST("metadata-manifest"),
   SEARCH_INDEX("search-index"),
+  ATTACHMENT_INDEX("attachment-index"),
   EXPORT("export"),
   POLICY_FINGERPRINT("policy-fingerprint"),
   SESSION_TOKEN("session-token"),

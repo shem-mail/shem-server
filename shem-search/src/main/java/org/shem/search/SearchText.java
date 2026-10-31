@@ -120,4 +120,47 @@ final class SearchText {
     }
     return grams;
   }
+
+  /**
+   * Trigrams of extracted attachment texts (ADR 0019), each text its own stream, after collapsing
+   * whitespace runs to one space so line breaks inserted by parsers do not split phrases. Returns
+   * {@code null} past {@link #MAX_TRIGRAMS}.
+   */
+  static @Nullable Set<String> attachmentGrams(java.util.List<String> texts) throws IOException {
+    Set<String> all = new HashSet<>();
+    for (String text : texts) {
+      Stream stream = new Stream();
+      if (!stream.add(new java.io.StringReader(collapseWhitespace(text)))) {
+        return null;
+      }
+      all.addAll(stream.grams);
+      if (all.size() > MAX_TRIGRAMS) {
+        return null;
+      }
+    }
+    return all;
+  }
+
+  /** Query trigrams for attachment search, normalized like {@link #attachmentGrams}. */
+  static Set<String> attachmentQueryGrams(String value) {
+    return queryGrams(collapseWhitespace(value).strip());
+  }
+
+  static String collapseWhitespace(String text) {
+    StringBuilder out = new StringBuilder(text.length());
+    boolean space = false;
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (Character.isWhitespace(c) || Character.isSpaceChar(c)) {
+        if (!space) {
+          out.append(' ');
+        }
+        space = true;
+      } else {
+        out.append(c);
+        space = false;
+      }
+    }
+    return out.toString();
+  }
 }

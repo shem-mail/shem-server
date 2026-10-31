@@ -297,6 +297,10 @@ final class Api implements HttpHandler {
         require(c, "POST");
         startExport(c);
       }
+      case "/api/v1/me/attachment-searches" -> {
+        require(c, "POST");
+        attachmentSearch(c);
+      }
       case "/api/v1/me/key-rotations" -> {
         require(c, "POST");
         startRotation(c);
@@ -560,6 +564,83 @@ final class Api implements HttpHandler {
       throw lifecycleFailure(e);
     }
     send(c.exchange, 201, out);
+  }
+
+  // ---- attachment search (ADR 0019) ----
+
+  static final int MAX_SEARCH_RESULTS = 1000;
+
+  /**
+   * Searches extracted attachment text of the caller's mailbox. Results are folder/UID references
+   * only (clients fetch messages over IMAP). While messages are still pending extraction the result
+   * would be incomplete, so the request fails with 409 unless {@code allowIncomplete} is set;
+   * messages whose attachments could only be searched partially are always listed.
+   */
+  private void attachmentSearch(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.MAIL_ACCESS);
+    JsonNode body = body(c);
+    String query = string(body, "query", 256);
+    boolean allowIncomplete = body.path("allowIncomplete").asBoolean(false);
+    org.shem.search.AttachmentIndex index =
+        session
+            .lease
+            .extension(org.shem.search.AttachmentIndex.class)
+            .orElseThrow(() -> new ApiException(404, "attachment search is not enabled"));
+    org.shem.search.AttachmentIndex.Snapshot snapshot = index.acquire();
+    try {
+      java.util.Set<OpaqueId> hits =
+          index
+              .matches(snapshot, query)
+              .orElseThrow(() -> ApiException.badRequest("query needs at least 3 characters"));
+      ArrayNode matches = json.createArrayNode();
+      ArrayNode incomplete = json.createArrayNode();
+      long[] pending = new long[1];
+      session.lease.read(
+          view -> {
+            for (org.shem.store.metadata.Folder folder : view.folders()) {
+              view.forEachMessage(
+                  folder.folderId(),
+                  (uid, record) -> {
+                    OpaqueId blob = record.blobId();
+                    if (!snapshot.covers(blob)) {
+                      pending[0]++;
+                      return true;
+                    }
+                    if (hits.contains(blob) && matches.size() < MAX_SEARCH_RESULTS) {
+                      reference(matches, folder, uid);
+                    }
+                    if (snapshot.incomplete(blob) && incomplete.size() < MAX_SEARCH_RESULTS) {
+                      reference(incomplete, folder, uid);
+                    }
+                    return true;
+                  });
+            }
+            return null;
+          });
+      if (pending[0] > 0 && !allowIncomplete) {
+        throw new ApiException(
+            409, pending[0] + " messages are still pending attachment extraction");
+      }
+      ObjectNode out = json.createObjectNode();
+      out.put("complete", pending[0] == 0 && incomplete.isEmpty());
+      out.put("pending", pending[0]);
+      out.put("truncated", matches.size() >= MAX_SEARCH_RESULTS);
+      out.set("matches", matches);
+      out.set("incomplete", incomplete);
+      send(c.exchange, 200, out);
+    } catch (org.shem.store.StorageException e) {
+      throw new ApiException(503, "temporarily unavailable");
+    } finally {
+      index.release(snapshot);
+    }
+  }
+
+  private static void reference(ArrayNode list, org.shem.store.metadata.Folder folder, long uid) {
+    list.addObject()
+        .put("folder", folder.name())
+        .put("uidValidity", folder.uidValidity())
+        .put("uid", uid);
   }
 
   // ---- MTA-STS policy hosting (ADR 0018) ----
