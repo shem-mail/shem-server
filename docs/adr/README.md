@@ -24,3 +24,4 @@ Decisions required by [PLAN.md](../../PLAN.md#decisions-that-must-remain-explici
 | [0018](0018-acme-and-mta-sts.md) | ACME (acme4j, HTTP-01) with atomic generations, port-80 challenge/redirect listener, MTA-STS hosting | Accepted (no real-CA run yet) |
 | [0019](0019-attachment-extraction.md) | Tika in isolation-probed worker processes; separate attachment index and search API with explicit coverage | Accepted |
 | [0020](0020-audit-and-backup.md) | Hash-chained fail-closed audit log, offline backup/verify/restore, CI workflow | Accepted (no hot backup; CI not yet run) |
+| [0021](0021-first-run-bootstrap.md) | First-run initial administrator from a password file or generated password; password change and TOTP enrollment at first login; container defaults | Accepted (image not yet built in CI) |

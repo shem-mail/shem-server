@@ -20,7 +20,14 @@ COPY --from=build /src/shem-app/target/shem-app.jar shem-app.jar
 COPY --from=build /src/shem-app/target/bom.json sbom/shem-app.cdx.json
 COPY --from=build /src/LICENSE /src/NOTICE ./
 COPY --from=build /src/shem-app/target/third-party/ licenses/
+# Data directory for the default configuration: owner-only, as startup requires. A named volume
+# mounted here inherits this ownership and mode on first use.
+RUN install -d -o shem -g shem -m 0700 /data
+VOLUME ["/data"]
 USER shem:shem
 # No heap/core dumps and no attach API: unlocked keys and plaintext live in process memory.
 # Core-dump limits (ulimit -c 0) and protected swap/tmpfs are still host/runtime settings.
 ENTRYPOINT ["java", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:-CreateCoredumpOnCrash", "-XX:+DisableAttachMechanism", "-XX:+ExitOnOutOfMemoryError", "-jar", "/opt/shem/shem-app.jar"]
+# Default: serve with the configuration mounted at /etc/shem/shem.properties
+# (see docs/examples/shem.properties and docs/examples/compose.yaml).
+CMD ["--config", "/etc/shem/shem.properties", "serve"]

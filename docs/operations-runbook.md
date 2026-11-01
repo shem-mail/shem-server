@@ -15,11 +15,20 @@ Practical deployment notes for the current implementation. Design decisions live
 | TLS | `tls.hostNames`, plus either `tls.certificateChain` and `tls.privateKey`, or `acme.*` | Include `mta-sts.<domain>` names when hosting MTA-STS ([ADR 0018](adr/0018-acme-and-mta-sts.md)). |
 | ACME | `acme.directory`, `acme.agreeToTerms=true`, `acme.challengeBind`, optional `acme.email` | Port 80 must reach `acme.challengeBind`. At first boot only port 80 opens until a certificate is issued. |
 | Extraction | `extraction.enabled`, `extraction.sandbox`, `extraction.scratch` | Scratch must be a private, size-limited tmpfs. Start from `docs/examples/extraction-sandbox.sh` ([ADR 0019](adr/0019-attachment-extraction.md)). |
+| First run | `bootstrap.adminPasswordFile`, optional `bootstrap.domain`, `bootstrap.adminName`, `bootstrap.validity`, `bootstrap.enabled` | Used only when `serve` starts on a fresh data directory ([ADR 0021](adr/0021-first-run-bootstrap.md)). Without a password file, the initial password is generated into `data/admin/initial-password`. |
 | Audit | `audit.stdout=true` | Mirrors audit records to stdout, so journald or a log shipper can keep an off-host copy ([ADR 0020](adr/0020-audit-and-backup.md)). |
 
 ## DNS
 
 Per domain, the admin API lists the required records at `GET /api/v1/admin/domains/{id}/dns`: MX, SPF, DMARC, DKIM and, with MTA-STS, `mta-sts` and `_mta-sts`. Reverse DNS for the outbound address should match the mail host name.
+
+## First installation
+
+1. **Docker Compose:** start from `docs/examples/compose.yaml` and `docs/examples/shem.properties`. Set the host name and domain, point DNS at the host, and put an initial admin password of at least 14 characters in `admin-password.txt` (readable by the container user).
+2. **Start:** `docker compose up -d`. The first start creates the administrator `admin` in setup state and, with `bootstrap.domain`, the first mail domain; ACME then issues the certificate.
+3. **First login:** `POST /api/v1/admin/auth/login` with the initial password returns a setup challenge and a TOTP secret. Enroll the secret, then `POST /api/v1/admin/auth/setup {challenge, newPassword, totp}`. Log in again normally.
+4. **Clean up:** delete the password file. Later starts ignore all `bootstrap.*` settings.
+5. **If the initial password expired** (default 3 days): stop the server and use `shem admin delete admin` and `shem admin create NAME`.
 
 ## Administrators
 

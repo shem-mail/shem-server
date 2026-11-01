@@ -16,6 +16,7 @@ import org.jspecify.annotations.Nullable;
 import org.shem.common.OpaqueId;
 import org.shem.crypto.KdfAdmission;
 import org.shem.crypto.Secret;
+import org.shem.crypto.Totp;
 import org.shem.identity.Account;
 import org.shem.identity.AccountState;
 import org.shem.identity.AdminStore;
@@ -28,10 +29,11 @@ import org.shem.mailbox.MailboxProvisioning;
 
 /**
  * {@code /api/v1/admin} (ADR 0016). Administrators authenticate with their own password and a
- * mandatory TOTP code, independent of any mailbox. They manage domains, accounts, aliases, and DKIM
- * keys, but no route reads mail, exports, resets a password to recover a mailbox, or touches
- * mailbox keys. Optimistic versions: mutations carry {@code version} (PATCH) or {@code If-Match}
- * (DELETE).
+ * mandatory TOTP code, independent of any mailbox. An administrator created by the first-run
+ * bootstrap (ADR 0021) must first replace its initial password and enroll TOTP through {@code
+ * /auth/setup}. They manage domains, accounts, aliases, and DKIM keys, but no route reads mail,
+ * exports, resets a password to recover a mailbox, or touches mailbox keys. Optimistic versions:
+ * mutations carry {@code version} (PATCH) or {@code If-Match} (DELETE).
  */
 public final class AdminApi {
   static final String COOKIE = "__Host-shem-admin";
@@ -53,12 +55,14 @@ public final class AdminApi {
   private final Services s;
   private final AdminSessionStore sessions;
   private final Clock clock;
+  private final SecureRandom random;
 
   AdminApi(Api api, Services services, Clock clock, SecureRandom random) {
     this.api = api;
     this.s = services;
     this.sessions = new AdminSessionStore(clock, random);
     this.clock = clock;
+    this.random = random;
   }
 
   void sweep() {
@@ -128,6 +132,11 @@ public final class AdminApi {
       case "/auth/mfa/verify" -> {
         Api.require(c, "POST");
         verify(c);
+        return;
+      }
+      case "/auth/setup" -> {
+        Api.require(c, "POST");
+        setup(c);
         return;
       }
       case "/auth/logout" -> {
@@ -250,11 +259,81 @@ public final class AdminApi {
       sessions.failed(c.source());
       throw ApiException.unauthorized();
     }
+    if (verified.get().setupRequired()) {
+      // First login with an initial password (ADR 0021): offer a TOTP secret to enroll. The
+      // challenge can only complete setup; it never becomes a session.
+      Secret totp = Totp.generateSecret(random);
+      String secret = Totp.base32(totp);
+      String challenge = sessions.createSetup(verified.get(), totp);
+      api.send(
+          c.exchange,
+          200,
+          api.json
+              .createObjectNode()
+              .put("mfaRequired", false)
+              .put("setupRequired", true)
+              .put("challenge", challenge)
+              .put("totpSecret", secret)
+              .put(
+                  "otpauthUri",
+                  "otpauth://totp/Shem:"
+                      + name
+                      + "?secret="
+                      + secret
+                      + "&issuer=Shem&algorithm=SHA1&digits=6&period=30"));
+      return;
+    }
     String challenge = sessions.createPending(verified.get());
     api.send(
         c.exchange,
         200,
         api.json.createObjectNode().put("mfaRequired", true).put("challenge", challenge));
+  }
+
+  /**
+   * Completes first-login setup (ADR 0021): a new password and a TOTP code for the offered secret.
+   * The challenge ends and no session is issued; the administrator then logs in normally.
+   */
+  private void setup(Api.Call c) throws ApiException, IOException {
+    if (sessions.blocked(c.source())) {
+      throw new ApiException(429, "too many attempts", AdminSessionStore.FAILURE_WINDOW);
+    }
+    JsonNode body = api.body(c);
+    String id = Api.string(body, "challenge", 128);
+    String newPassword = Api.string(body, "newPassword", 1024);
+    String code = Api.string(body, "totp", 16);
+    AdminSessionStore.Pending pending =
+        sessions.pending(id).orElseThrow(ApiException::unauthorized);
+    Secret totp = pending.setupTotp;
+    if (totp == null) {
+      throw new ApiException(409, "setup is not pending for this login");
+    }
+    String actor = "admin:" + pending.verified.name();
+    AdminStore.SetupResult result;
+    try {
+      result = s.admins().completeSetup(pending.verified, newPassword, totp, code);
+    } catch (AdminStore.AdminException e) {
+      auditQuietly(actor, "auth.setup", "-", "failed");
+      throw new ApiException(
+          409, java.util.Objects.requireNonNullElse(e.getMessage(), "setup refused"));
+    } catch (KdfAdmission.Rejected e) {
+      throw new ApiException(429, "server busy", Duration.ofSeconds(5));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ApiException(503, "temporarily unavailable");
+    } catch (org.shem.crypto.CryptoException e) {
+      auditQuietly(actor, "auth.setup", "-", "failed");
+      throw new ApiException(500, "setup failed");
+    }
+    if (result == AdminStore.SetupResult.WRONG_CODE) {
+      auditQuietly(actor, "auth.setup", "-", "failed");
+      sessions.pendingFailed(id, pending);
+      sessions.failed(c.source());
+      throw ApiException.unauthorized();
+    }
+    sessions.finish(id);
+    auditQuietly(actor, "auth.setup", "-", "ok");
+    c.exchange.sendResponseHeaders(204, -1);
   }
 
   private void verify(Api.Call c) throws ApiException, IOException {
@@ -263,6 +342,9 @@ public final class AdminApi {
     String code = Api.string(body, "totp", 16);
     AdminSessionStore.Pending pending =
         sessions.pending(id).orElseThrow(ApiException::unauthorized);
+    if (pending.setupTotp != null) {
+      throw new ApiException(409, "complete setup first: POST /api/v1/admin/auth/setup");
+    }
     boolean ok;
     try {
       ok = s.admins().verifyTotp(pending.verified, code);

@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Shem server API",
-    "version": "1.0.0",
-    "description": "Versioned HTTP contract (ADR 0013-0019). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
+    "version": "1.1.0",
+    "description": "Versioned HTTP contract (ADR 0013-0021). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
   },
   "paths": {
     "/healthz": {
@@ -1219,11 +1219,11 @@
     },
     "/api/v1/admin/auth/login": {
       "post": {
-        "summary": "Administrator password; returns a TOTP challenge",
+        "summary": "Administrator password; returns a TOTP challenge, or a setup challenge for an initial password",
         "x-shem-principal": "public",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "OK. With setupRequired=true the challenge can only be used with /api/v1/admin/auth/setup, and totpSecret/otpauthUri carry the TOTP secret to enroll.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1233,8 +1233,19 @@
                     "mfaRequired": {
                       "type": "boolean"
                     },
+                    "setupRequired": {
+                      "type": "boolean"
+                    },
                     "challenge": {
                       "type": "string"
+                    },
+                    "totpSecret": {
+                      "type": "string",
+                      "readOnly": true
+                    },
+                    "otpauthUri": {
+                      "type": "string",
+                      "readOnly": true
                     }
                   }
                 }
@@ -1316,6 +1327,53 @@
                 },
                 "required": [
                   "challenge",
+                  "totp"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/auth/setup": {
+      "post": {
+        "summary": "Complete first-login setup: replace the initial password and enroll TOTP; issues no session",
+        "x-shem-principal": "public",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 14,
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  },
+                  "totp": {
+                    "type": "string",
+                    "maxLength": 16
+                  }
+                },
+                "required": [
+                  "challenge",
+                  "newPassword",
                   "totp"
                 ]
               }

@@ -42,7 +42,37 @@ public record ShemConfig(
     @Nullable Http http,
     @Nullable MtaSts mtaSts,
     @Nullable Extraction extraction,
-    boolean auditToStdout) {
+    boolean auditToStdout,
+    Bootstrap bootstrap) {
+
+  /**
+   * First-run bootstrap (ADR 0021), applied only when {@code serve} starts on a data directory that
+   * has neither a routing directory nor an admin store. Later starts ignore it.
+   *
+   * @param enabled whether a fresh data directory gets an initial administrator
+   * @param adminName the initial administrator's name
+   * @param adminPasswordFile file holding the initial password; when absent, a password is
+   *     generated and written owner-only to {@code admin/initial-password} in the data directory
+   * @param domain optional first mail domain to create
+   * @param validity how long the initial password stays valid
+   */
+  public record Bootstrap(
+      boolean enabled,
+      String adminName,
+      @Nullable Path adminPasswordFile,
+      @Nullable String domain,
+      Duration validity) {
+    public Bootstrap {
+      if (!adminName.matches("[a-z0-9][a-z0-9._-]{0,31}")) {
+        throw new IllegalArgumentException(
+            "bootstrap.adminName must be 1-32 lower-case letters, digits, '.', '_' or '-'");
+      }
+      if (validity.compareTo(Duration.ofHours(1)) < 0
+          || validity.compareTo(Duration.ofDays(30)) > 0) {
+        throw new IllegalArgumentException("bootstrap.validity must be between PT1H and P30D");
+      }
+    }
+  }
 
   /**
    * Listener certificate files (PEM) and the host names they must cover. With {@code acme}, the
@@ -266,7 +296,12 @@ public record ShemConfig(
           "policy.rulesFile",
           "policy.blocklists",
           "dns.servers",
-          "dns.timeout");
+          "dns.timeout",
+          "bootstrap.enabled",
+          "bootstrap.adminName",
+          "bootstrap.adminPasswordFile",
+          "bootstrap.domain",
+          "bootstrap.validity");
 
   public ShemConfig {
     if (mode == Mode.PRODUCTION && devBootstrapEnabled) {
@@ -352,7 +387,29 @@ public record ShemConfig(
         http(p),
         mtaSts(p),
         extraction(p, base),
-        bool(p, "audit.stdout", false));
+        bool(p, "audit.stdout", false),
+        bootstrap(p, base));
+  }
+
+  private static Bootstrap bootstrap(Properties p, Path base) {
+    String passwordFile = p.getProperty("bootstrap.adminPasswordFile");
+    String domain = p.getProperty("bootstrap.domain");
+    String canonical = null;
+    if (domain != null && !domain.isBlank()) {
+      try {
+        canonical = org.shem.identity.EmailAddress.canonicalDomain(domain.trim());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("bootstrap.domain is not a valid domain name", e);
+      }
+    }
+    return new Bootstrap(
+        bool(p, "bootstrap.enabled", true),
+        p.getProperty("bootstrap.adminName", "admin").trim(),
+        passwordFile == null || passwordFile.isBlank()
+            ? null
+            : base.resolve(passwordFile.trim()).normalize(),
+        canonical,
+        duration(p, "bootstrap.validity", Duration.ofDays(3)));
   }
 
   private static @Nullable Tls tls(Properties p, Path base, Path data) {
