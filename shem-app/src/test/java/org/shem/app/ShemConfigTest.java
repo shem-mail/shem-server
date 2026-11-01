@@ -211,4 +211,45 @@ class ShemConfigTest {
     p.setProperty("mode", "development");
     assertThat(ShemConfig.fromProperties(p, BASE).extraction()).isNotNull();
   }
+
+  @Test
+  void bootstrapDefaultsAndValidation() {
+    ShemConfig.Bootstrap defaults = ShemConfig.fromProperties(base(), BASE).bootstrap();
+    assertThat(defaults.enabled()).isTrue();
+    assertThat(defaults.adminName()).isEqualTo("admin");
+    assertThat(defaults.adminPasswordFile()).isNull();
+    assertThat(defaults.domain()).isNull();
+    assertThat(defaults.validity()).isEqualTo(java.time.Duration.ofDays(3));
+
+    Properties p = base();
+    p.setProperty("bootstrap.adminPasswordFile", "secrets/admin");
+    p.setProperty("bootstrap.domain", "Example.ORG.");
+    ShemConfig.Bootstrap set = ShemConfig.fromProperties(p, BASE).bootstrap();
+    assertThat(set.adminPasswordFile()).isEqualTo(Path.of("/srv/shem/secrets/admin"));
+    assertThat(set.domain()).isEqualTo("example.org");
+
+    Properties badName = base();
+    badName.setProperty("bootstrap.adminName", "Root User");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(badName, BASE))
+        .hasMessageContaining("bootstrap.adminName");
+    Properties badDomain = base();
+    badDomain.setProperty("bootstrap.domain", "not a domain");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(badDomain, BASE))
+        .hasMessageContaining("bootstrap.domain");
+    Properties badValidity = base();
+    badValidity.setProperty("bootstrap.validity", "P90D");
+    assertThatThrownBy(() -> ShemConfig.fromProperties(badValidity, BASE))
+        .hasMessageContaining("bootstrap.validity");
+  }
+
+  @Test
+  void documentedDockerExampleIsAValidConfiguration() throws Exception {
+    ShemConfig config = ShemConfig.load(Path.of("../docs/examples/shem.properties"));
+    assertThat(config.dataDirectory()).isEqualTo(Path.of("/data"));
+    assertThat(config.bootstrap().adminPasswordFile())
+        .isEqualTo(Path.of("/run/secrets/shem_admin_password"));
+    assertThat(config.bootstrap().domain()).isEqualTo("example.org");
+    assertThat(config.http()).isNotNull();
+    assertThat(java.util.Objects.requireNonNull(config.tls()).acme()).isNotNull();
+  }
 }

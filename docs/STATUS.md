@@ -12,7 +12,7 @@ Build: `mvn verify` (Java 21 target) passes on JDK 21 (see [ADR 0001](adr/0001-j
 | 4 Metadata store | `shem-store` | Implemented per [ADR 0004](adr/0004-metadata-store.md). |
 | 5 Sessions | `shem-mailbox` | Implemented: shared authenticator, dummy KDF, per-source limiter, leases/child leases, revocation, registry. MFA (HTTP) pending. |
 | 6 Delivery | `shem-delivery`, `shem-mailbox` | Implemented: locked delivery, receipts, idempotent import, enrollment, password/app/recovery slots, rotation with re-encryption, garbage collection. |
-| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, offline `admin` command, `serve` (TLS + IMAP and/or inbound SMTP), packaged jar + SBOM. |
+| — Runtime | `shem-app` | Typed config, data-directory lock, composition root, gated `dev` bootstrap command, offline `admin` command, first-run initial administrator and container defaults ([ADR 0021](adr/0021-first-run-bootstrap.md)), `serve` (TLS + IMAP and/or inbound SMTP), packaged jar + SBOM. |
 | 7 Listener TLS | `shem-tls` | Implemented: PEM loading/validation (key match, hosts, validity, chain links), atomic hot reload, file watcher. |
 | 8 IMAP | `shem-imap` | Implemented per [ADR 0005](adr/0005-james-integration.md) with complete exact-evaluation SEARCH; validated with a real client (`ImapClientIT`). |
 | 9 Search index | `shem-search` | Implemented per [ADR 0008](adr/0008-search-index.md): encrypted Lucene Directory, trigram candidate filter verified against exact evaluation, rebuild on corruption/rotation. No benchmarks yet. |

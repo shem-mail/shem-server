@@ -75,6 +75,13 @@ final class ServeCommand {
     ShemConfig.Acme acme = tlsConfig.acme();
     try (Services services = Services.start(config);
         Acme automatic = acme == null ? null : startAcme(services, tlsConfig, acme)) {
+      try {
+        // Before any listener opens, so the initial administrator exists once the API is up.
+        new FirstRunBootstrap(services, out).run();
+      } catch (FirstRunBootstrap.BootstrapException e) {
+        out.println(e.getMessage() + " (see bootstrap.*, ADR 0021)");
+        return 2;
+      }
       WorkerPool extraction = services.extraction;
       if (extraction != null) {
         // Fails startup when required isolation is missing (ADR 0019).

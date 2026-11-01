@@ -69,7 +69,10 @@ final class AdminCommand {
           if (args.size() != 1) {
             return usage();
           }
-          admins.names().forEach(out::println);
+          List<String> pending = admins.namesPendingSetup();
+          for (String name : admins.names()) {
+            out.println(pending.contains(name) ? name + " (setup pending)" : name);
+          }
         }
         case "delete" -> {
           if (args.size() != 2) {

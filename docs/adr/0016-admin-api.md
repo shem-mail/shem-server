@@ -23,7 +23,8 @@ Status: accepted for domains, accounts, aliases, and DKIM. Admin factor rotation
 
 - It runs offline and holds the data-directory lock, so it never runs beside a server.
 - `create` reads the password twice without echo, and prints the TOTP secret (base32 plus an `otpauth://` URI) once.
-- It is allowed in production mode because it is the only way to bootstrap administrators. Running it requires shell access to the data directory, which already implies control of the server.
+- It is allowed in production mode. Running it requires shell access to the data directory, which already implies control of the server.
+- [ADR 0021](0021-first-run-bootstrap.md) adds a second way to create the *first* administrator: `serve` creates it on a fresh data directory, and it must replace its initial password and enroll TOTP at first login.
 - **Recovering a lost admin factor:** delete and recreate the administrator. This gains nothing over mailboxes.
 
 ### Sessions (`AdminSessionStore`)

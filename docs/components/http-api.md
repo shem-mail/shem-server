@@ -28,6 +28,7 @@ Version business endpoints under `/api/v1` and publish a machine-readable OpenAP
 | `POST /api/v1/me/exports` | User, unlocked, step-up | Start bounded streaming export negotiation; no plaintext export spool |
 | `GET /api/v1/me/exports/{exportId}/content` | Owning user, unlocked | Stream agreed plaintext MBOX or versioned encrypted export |
 | `DELETE /api/v1/me` | User, step-up | Request delayed destructive deletion with backup caveats |
+| `POST /api/v1/admin/auth/setup` | Public, setup challenge | First login of a bootstrap administrator: replace the initial password and enroll TOTP ([ADR 0021](../adr/0021-first-run-bootstrap.md)) |
 | `GET, POST /api/v1/admin/domains` | Admin | List/create owned server domains |
 | `GET, PATCH, DELETE /api/v1/admin/domains/{domainId}` | Admin | Inspect/change/remove domain with dependency safeguards |
 | `GET, POST /api/v1/admin/accounts` | Admin | List/create accounts with short-lived bootstrap flow |

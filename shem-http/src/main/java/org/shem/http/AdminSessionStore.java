@@ -12,21 +12,29 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 import org.shem.crypto.CryptoException;
 import org.shem.crypto.Purpose;
+import org.shem.crypto.Secret;
 import org.shem.crypto.SymmetricKey;
 import org.shem.identity.AdminStore;
 
 /**
  * In-memory administrator sessions (ADR 0016), separate from mailbox sessions: they hold no mailbox
  * lease and grant no mailbox access. Tokens are stored as keyed fingerprints. A password-verified
- * login waits as a pending challenge (holding the admin key only until its TOTP code is checked).
+ * login waits as a pending challenge (holding the admin key only until its TOTP code is checked). A
+ * login with an initial password (ADR 0021) waits as a setup challenge instead, which also holds
+ * the TOTP secret offered for enrollment; it can only complete setup, never become a session.
  * Failed admin logins are limited per client address.
  */
 final class AdminSessionStore implements AutoCloseable {
   static final Duration IDLE = Duration.ofMinutes(15);
   static final Duration ABSOLUTE = Duration.ofHours(8);
   static final Duration PENDING = Duration.ofMinutes(5);
+
+  /** Setup challenges allow time to scan the QR code and choose a password. */
+  static final Duration SETUP = Duration.ofMinutes(15);
+
   static final int MAX_SESSIONS = 64;
   static final int MAX_ATTEMPTS = 5;
   static final int MAX_FAILURES = 10;
@@ -50,12 +58,25 @@ final class AdminSessionStore implements AutoCloseable {
 
   static final class Pending {
     final AdminStore.Verified verified;
+
+    /** The TOTP secret offered for enrollment; non-null exactly for setup challenges. */
+    final @Nullable Secret setupTotp;
+
     final Instant expires;
     int attemptsLeft = MAX_ATTEMPTS;
 
-    Pending(AdminStore.Verified verified, Instant expires) {
+    Pending(AdminStore.Verified verified, @Nullable Secret setupTotp, Instant expires) {
       this.verified = verified;
+      this.setupTotp = setupTotp;
       this.expires = expires;
+    }
+
+    void close() {
+      verified.close();
+      Secret totp = setupTotp;
+      if (totp != null) {
+        totp.close();
+      }
     }
   }
 
@@ -99,14 +120,31 @@ final class AdminSessionStore implements AutoCloseable {
 
   /** Takes ownership of {@code verified}. */
   synchronized String createPending(AdminStore.Verified verified) throws ApiException {
+    return add(new Pending(verified, null, clock.instant().plus(PENDING)));
+  }
+
+  /** A setup challenge (ADR 0021); takes ownership of {@code verified} and {@code totp}. */
+  synchronized String createSetup(AdminStore.Verified verified, Secret totp) throws ApiException {
+    return add(new Pending(verified, totp, clock.instant().plus(SETUP)));
+  }
+
+  private String add(Pending p) throws ApiException {
     expirePending();
     if (pending.size() >= MAX_SESSIONS) {
-      verified.close();
+      p.close();
       throw new ApiException(429, "too many pending logins");
     }
     String id = randomToken();
-    pending.put(hash(id), new Pending(verified, clock.instant().plus(PENDING)));
+    pending.put(hash(id), p);
     return id;
+  }
+
+  /** Ends a challenge whose purpose is fulfilled (completed setup). */
+  synchronized void finish(String id) {
+    Pending p = pending.remove(hash(id));
+    if (p != null) {
+      p.close();
+    }
   }
 
   synchronized Optional<Pending> pending(String id) {
@@ -119,13 +157,17 @@ final class AdminSessionStore implements AutoCloseable {
     p.attemptsLeft--;
     if (p.attemptsLeft <= 0) {
       pending.remove(hash(id));
-      p.verified.close();
+      p.close();
     }
   }
 
   synchronized Issued promote(String id) throws ApiException {
     Pending p = pending.remove(hash(id));
     if (p == null) {
+      throw ApiException.unauthorized();
+    }
+    if (p.setupTotp != null) {
+      p.close();
       throw ApiException.unauthorized();
     }
     try {
@@ -189,7 +231,7 @@ final class AdminSessionStore implements AutoCloseable {
               }
               return false;
             });
-    expired.forEach(p -> p.verified.close());
+    expired.forEach(Pending::close);
   }
 
   private String randomToken() {
@@ -214,7 +256,7 @@ final class AdminSessionStore implements AutoCloseable {
   @Override
   public synchronized void close() {
     sessions.clear();
-    pending.values().forEach(p -> p.verified.close());
+    pending.values().forEach(Pending::close);
     pending.clear();
     tokenKey.close();
   }

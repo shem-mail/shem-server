@@ -1,0 +1,37 @@
+# First installation with Docker Compose (ADR 0021):
+#
+#   1. Edit shem.properties (host name, domain) and point DNS for the host name at this machine.
+#   2. Put an initial admin password of at least 14 characters in admin-password.txt, readable by
+#      the container's shem user (for example: chmod 0444 admin-password.txt).
+#   3. docker compose up -d
+#   4. Sign in at https://<host>/api/v1/admin/auth/login as "admin"; the first login replaces the
+#      password and enrolls TOTP. Afterwards admin-password.txt can be deleted.
+services:
+  shem:
+    image: shem-server:latest   # or build: ../.. from a checkout
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "80:80"
+      - "443:443"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+    # The image runs as the unprivileged shem user; let it bind ports below 1024.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    # Unlocked keys and plaintext live in process memory: no core dumps.
+    ulimits:
+      core: 0
+    volumes:
+      - shem-data:/data
+      - ./shem.properties:/etc/shem/shem.properties:ro
+    secrets:
+      - shem_admin_password
+
+secrets:
+  shem_admin_password:
+    file: ./admin-password.txt
+
+volumes:
+  shem-data:

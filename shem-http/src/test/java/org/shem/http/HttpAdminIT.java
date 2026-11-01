@@ -473,4 +473,106 @@ class HttpAdminIT {
         .as("fail closed: no unaudited change")
         .isEmpty();
   }
+
+  /** RFC 4648 base32 without padding, as shown to administrators. */
+  private static byte[] base32(String text) {
+    String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    int buffer = 0;
+    int bits = 0;
+    for (int i = 0; i < text.length(); i++) {
+      buffer = (buffer << 5) | alphabet.indexOf(text.charAt(i));
+      bits += 5;
+      if (bits >= 8) {
+        out.write((buffer >> (bits - 8)) & 0xff);
+        bits -= 8;
+      }
+    }
+    return out.toByteArray();
+  }
+
+  private HttpFixture.Response setup(String challenge, String newPassword, String totp)
+      throws Exception {
+    return post(
+        "/api/v1/admin/auth/setup",
+        JSON.createObjectNode()
+            .put("challenge", challenge)
+            .put("newPassword", newPassword)
+            .put("totp", totp)
+            .toString());
+  }
+
+  @Test
+  void bootstrapAdministratorMustSetPasswordAndTotpAtFirstLogin() throws Exception {
+    String initial = "initial bootstrap passphrase";
+    String chosen = "the operator's own passphrase";
+    fixture.admins.createForSetup(
+        "first", initial, fixture.clock.instant().plus(Duration.ofDays(3)));
+
+    HttpFixture.Response login = password("first", initial);
+    assertThat(login.status()).isEqualTo(200);
+    JsonNode offer = json(login);
+    assertThat(offer.get("setupRequired").asBoolean()).isTrue();
+    assertThat(offer.get("mfaRequired").asBoolean()).isFalse();
+    assertThat(offer.get("otpauthUri").asText()).startsWith("otpauth://totp/Shem:first?secret=");
+    String challenge = offer.get("challenge").asText();
+    assertThat(login.header("Set-Cookie")).isNull();
+
+    try (org.shem.crypto.Secret totp =
+        org.shem.crypto.Secret.wrap(base32(offer.get("totpSecret").asText()))) {
+      assertThat(
+              post(
+                      "/api/v1/admin/auth/mfa/verify",
+                      JSON.createObjectNode()
+                          .put("challenge", challenge)
+                          .put("totp", fixture.totp(totp))
+                          .toString())
+                  .status())
+          .as("a setup challenge never becomes a session")
+          .isEqualTo(409);
+      assertThat(setup(challenge, chosen, "000000").status()).isEqualTo(401);
+      assertThat(setup(challenge, "too short", fixture.totp(totp)).status()).isEqualTo(409);
+      assertThat(setup(challenge, initial, fixture.totp(totp)).status())
+          .as("the initial password cannot be kept")
+          .isEqualTo(409);
+
+      HttpFixture.Response done = setup(challenge, chosen, fixture.totp(totp));
+      assertThat(done.status()).isEqualTo(204);
+      assertThat(done.header("Set-Cookie")).as("setup issues no session").isNull();
+      assertThat(setup(challenge, chosen, fixture.totp(totp)).status())
+          .as("the challenge is spent")
+          .isEqualTo(401);
+
+      assertThat(password("first", initial).status()).isEqualTo(401);
+      HttpFixture.Response normal = password("first", chosen);
+      assertThat(json(normal).get("mfaRequired").asBoolean()).isTrue();
+      HttpFixture.Response session =
+          post(
+              "/api/v1/admin/auth/mfa/verify",
+              JSON.createObjectNode()
+                  .put("challenge", json(normal).get("challenge").asText())
+                  .put("totp", fixture.totp(totp))
+                  .toString());
+      assertThat(session.status()).isEqualTo(200);
+      assertThat(json(session).get("admin").asText()).isEqualTo("first");
+    }
+  }
+
+  @Test
+  void expiredInitialPasswordIsRefused() throws Exception {
+    String initial = "initial bootstrap passphrase";
+    fixture.admins.createForSetup(
+        "first", initial, fixture.clock.instant().plus(Duration.ofDays(3)));
+    fixture.clock.advance(Duration.ofDays(3));
+    assertThat(password("first", initial).status()).isEqualTo(401);
+  }
+
+  @Test
+  void normalChallengesCannotBeUsedForSetup() throws Exception {
+    HttpFixture.Response first = password(HttpFixture.ADMIN, HttpFixture.ADMIN_PASSWORD);
+    assertThat(
+            setup(json(first).get("challenge").asText(), "a brand new passphrase", "123456")
+                .status())
+        .isEqualTo(409);
+  }
 }
