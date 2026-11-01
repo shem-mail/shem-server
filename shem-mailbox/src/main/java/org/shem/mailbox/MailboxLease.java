@@ -140,6 +140,28 @@ public final class MailboxLease implements AutoCloseable {
     return coordinator;
   }
 
+  /** Whether this is a session's own lease rather than a {@link #child()} for background work. */
+  boolean isSession() {
+    return parent == null;
+  }
+
+  /** The session lease this lease belongs to: itself, or the root of its parent chain. */
+  MailboxLease session() {
+    MailboxLease lease = this;
+    while (lease.parent != null) {
+      lease = lease.parent;
+    }
+    return lease;
+  }
+
+  /**
+   * Revokes every other session of the mailbox and returns how many ended. Works even after this
+   * lease was revoked, so a step that already committed still ends the other sessions.
+   */
+  int revokeOtherSessions() {
+    return coordinator.revokeOtherSessions(this);
+  }
+
   void require(Capability capability) {
     checkValid();
     if (!principal.can(capability)) {
