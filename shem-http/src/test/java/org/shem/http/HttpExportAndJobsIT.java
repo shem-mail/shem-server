@@ -263,6 +263,7 @@ class HttpExportAndJobsIT {
   @Test
   void keyRotationRunsAsAJobVisibleOnlyToItsOwner() throws Exception {
     HttpApiIT.Browser alice = alice();
+    HttpApiIT.Browser otherAlice = alice();
     String before = fixture.identity.account(aliceId()).orElseThrow().publicKey().fingerprint();
     assertThat(as(alice, "POST", "/api/v1/me/key-rotations", "{}").status()).isEqualTo(400);
     assertThat(
@@ -296,6 +297,9 @@ class HttpExportAndJobsIT {
     assertThat(as(alice, "GET", "/api/v1/me", null).status())
         .as("the requesting session survives the rotation")
         .isEqualTo(200);
+    assertThat(as(otherAlice, "GET", "/api/v1/me", null).status())
+        .as("every other session ends, also one that unlocked the same password slot")
+        .isEqualTo(401);
 
     Secret bobTotp = enrollBob();
     HttpApiIT.Browser bob = login(BOB, BOB_PASSWORD, bobTotp);
@@ -319,8 +323,27 @@ class HttpExportAndJobsIT {
             "{\"currentPassword\":\"" + HttpFixture.PASSWORD + "\"}");
     assertThat(started.status()).isEqualTo(202);
     as(alice, "POST", "/api/v1/auth/logout", null);
-    JsonNode job = awaitJob(observer, Objects.requireNonNull(started.header("Location")));
-    assertThat(job.get("status").asText()).isIn("succeeded", "interrupted");
+    String location = Objects.requireNonNull(started.header("Location"));
+    long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+    HttpFixture.Response polled;
+    while (true) {
+      polled = as(observer, "GET", location, null);
+      if (polled.status() != 200
+          || !json(polled).get("status").asText().equals("running")
+          || System.nanoTime() > deadline) {
+        break;
+      }
+      Thread.sleep(10);
+    }
+    if (polled.status() == 200) {
+      assertThat(json(polled).get("status").asText())
+          .as("stopped before the commit point, so the observer's session survives")
+          .isEqualTo("interrupted");
+    } else {
+      assertThat(polled.status())
+          .as("past the commit point the rotation ends every other session, the observer's too")
+          .isEqualTo(401);
+    }
     // Whatever the race, the next unlock leaves the mailbox usable with the new password.
     try (MailboxLease lease =
         fixture.sessions.authenticatePrimary(

@@ -344,6 +344,90 @@ class MailboxVerticalSliceTest {
         .close();
   }
 
+  private String createAppPassword(MailboxLease owner, String label) throws Exception {
+    try (Secret secret = server.lifecycle.createAppPassword(owner, label)) {
+      return new String(secret.exposeCopy(), StandardCharsets.UTF_8);
+    }
+  }
+
+  @Test
+  void endingOtherSessionsKeepsTheCallersSessionAndItsBackgroundWork() throws Exception {
+    try (MailboxLease owner = enroll()) {
+      String appPassword = createAppPassword(owner, "phone");
+      MailboxLease otherWeb =
+          server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT);
+      MailboxLease phone =
+          server.sessions.authenticateMailClient(
+              "alice@example.org", appPassword, CLIENT, Capability.MAIL_ACCESS);
+      MailboxLease ownJob = owner.child();
+      MailboxLease otherJob = otherWeb.child();
+      assertThatThrownBy(() -> server.lifecycle.endOtherSessions(phone))
+          .as("app passwords cannot end sessions")
+          .isInstanceOf(SecurityException.class);
+
+      assertThat(server.lifecycle.endOtherSessions(ownJob))
+          .as("a child lease acts for its session, and children are not counted")
+          .isEqualTo(2);
+
+      assertThat(otherWeb.isValid()).isFalse();
+      assertThat(phone.isValid()).isFalse();
+      assertThat(otherJob.isValid()).isFalse();
+      assertThat(owner.isValid()).isTrue();
+      assertThat(ownJob.isValid()).isTrue();
+      assertThat(server.registry.isUnlocked(alice.mailboxId())).isTrue();
+      assertThat(server.lifecycle.endOtherSessions(owner)).isZero();
+      ownJob.close();
+      // Credentials are untouched: the mail client may log in again.
+      server
+          .sessions
+          .authenticateMailClient("alice@example.org", appPassword, CLIENT, Capability.MAIL_ACCESS)
+          .close();
+    }
+  }
+
+  @Test
+  void passwordChangeEndsOtherSessionsOfTheSamePasswordSlot() throws Exception {
+    try (MailboxLease owner = enroll()) {
+      String appPassword = createAppPassword(owner, "phone");
+      MailboxLease otherWeb =
+          server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT);
+      MailboxLease phone =
+          server.sessions.authenticateMailClient(
+              "alice@example.org", appPassword, CLIENT, Capability.MAIL_ACCESS);
+      assertThat(otherWeb.principal().slotId())
+          .as("both web sessions unlocked the one password slot")
+          .isEqualTo(owner.principal().slotId());
+
+      server.lifecycle.changePassword(owner, "a much better passphrase");
+
+      assertThat(otherWeb.isValid()).isFalse();
+      assertThat(phone.isValid()).isFalse();
+      assertThat(owner.isValid()).isTrue();
+      assertThat(inboxSubjects(owner)).isEmpty();
+      server
+          .sessions
+          .authenticateMailClient("alice@example.org", appPassword, CLIENT, Capability.MAIL_ACCESS)
+          .close();
+    }
+  }
+
+  @Test
+  void rotationEndsOtherSessionsOfTheSamePasswordSlot() throws Exception {
+    try (MailboxLease owner = enroll()) {
+      MailboxLease otherWeb =
+          server.sessions.authenticatePrimary("alice@example.org", PASSWORD, CLIENT);
+      MailboxLease job = owner.child();
+
+      server.lifecycle.rotateKeys(job, PASSWORD);
+
+      assertThat(otherWeb.isValid()).isFalse();
+      assertThat(job.isValid()).as("the requesting session's job").isTrue();
+      assertThat(owner.isValid()).isTrue();
+      job.close();
+      assertThat(inboxSubjects(owner)).isEmpty();
+    }
+  }
+
   @Test
   void receiptReplayIsIdempotentAfterCrashBeforeRetirement() throws Exception {
     enroll().close();

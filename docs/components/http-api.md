@@ -16,11 +16,12 @@ Version business endpoints under `/api/v1` and publish a machine-readable OpenAP
 | `POST /api/v1/auth/logout` | Authenticated | Revoke session and release unlock lease |
 | `GET /api/v1/me` | Authenticated | Own identity, enrollment state, capabilities; no secrets |
 | `POST /api/v1/me/enrollment` | Bootstrap user | Complete required credential/keypair cutover |
-| `PUT /api/v1/me/password` | User, step-up | Rewrap key slot; not a historical-data re-encryption operation |
+| `PUT /api/v1/me/password` | User, step-up | Rewrap key slot and end every other session; not a historical-data re-encryption operation |
 | `GET, POST /api/v1/me/app-passwords` | User, step-up for creation | List non-secret slot labels or create one-time-displayed random app credential |
 | `DELETE /api/v1/me/app-passwords/{slotId}` | User, step-up | Remove slot and invalidate its live sessions |
 | `POST /api/v1/me/recovery-code` | User, step-up | Generate/replace a one-time-displayed user-held recovery secret |
-| `POST /api/v1/me/key-rotations` | User, step-up | Start resumable rotation, return opaque job reference |
+| `DELETE /api/v1/me/other-sessions` | User, step-up | End every other session of the mailbox (API, pending logins, IMAP, submission); credentials stay valid |
+| `POST /api/v1/me/key-rotations` | User, step-up | Start resumable rotation, return opaque job reference; every other session ends at the commit point |
 | `POST /api/v1/me/mfa/enrollment` | User/admin, step-up | Begin protected second-factor enrollment |
 | `POST /api/v1/me/mfa/confirmation` | User/admin, step-up | Confirm factor before enabling it |
 | `DELETE /api/v1/me/mfa/{factorId}` | User/admin, step-up | Enforce safe replacement/recovery policy |

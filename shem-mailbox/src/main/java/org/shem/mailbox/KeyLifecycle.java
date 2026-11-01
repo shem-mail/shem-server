@@ -115,7 +115,9 @@ public final class KeyLifecycle {
 
   /**
    * User-initiated rotation: like enrollment, for an active account. Other slots (app passwords,
-   * recovery codes) wrap the old master key and are removed; the user must recreate them.
+   * recovery codes) wrap the old master key and are removed; the user must recreate them. Every
+   * other session of the mailbox ends as soon as the new keyring is committed; the requesting
+   * session, which re-proved the password, stays open.
    */
   public void rotateKeys(MailboxLease lease, CharSequence password)
       throws LifecycleException,
@@ -128,17 +130,17 @@ public final class KeyLifecycle {
     if (account(lease).state() != AccountState.ACTIVE) {
       throw new LifecycleException("account is not active");
     }
-    Set<OpaqueId> removed = replaceAllKeys(lease, password);
+    replaceAllKeys(lease, password);
+    // Past the commit point: end the other sessions before the resumable steps, which may fail.
+    lease.revokeOtherSessions();
     resume(lease);
-    for (OpaqueId slotId : removed) {
-      // The session that requested the rotation re-proved the password and stays open.
-      if (!slotId.equals(lease.principal().slotId())) {
-        registry.revokeSlot(lease.mailboxId(), slotId);
-      }
-    }
   }
 
-  /** Rewraps the master key under a new password; leases from the old password slot end. */
+  /**
+   * Rewraps the master key under a new password and ends every other session of the mailbox,
+   * including other sessions that unlocked the same old password slot. A recovery session is
+   * single-use: afterwards every session ends, its own included.
+   */
   public void changePassword(MailboxLease lease, CharSequence newPassword)
       throws LifecycleException,
           StorageException,
@@ -147,18 +149,23 @@ public final class KeyLifecycle {
           InterruptedException {
     requireKeyAdmin(lease);
     checkPassword(newPassword);
-    List<OpaqueId> replaced =
-        replaceSlotsOfKind(lease, SlotKind.PASSWORD, newPassword, "password", KeyFiles.NO_SELECTOR);
-    for (OpaqueId old : replaced) {
-      if (!old.equals(lease.principal().slotId())) {
-        registry.revokeSlot(lease.mailboxId(), old);
-      }
-    }
+    replaceSlotsOfKind(lease, SlotKind.PASSWORD, newPassword, "password", KeyFiles.NO_SELECTOR);
+    lease.revokeOtherSessions();
     if (lease.principal().slotKind() == SlotKind.RECOVERY) {
       // A recovery code is single-use: consume it and end every other session.
       removeSlot(lease, lease.principal().slotId());
       registry.revokeMailbox(lease.mailboxId());
     }
+  }
+
+  /**
+   * Ends every other session of the mailbox (API sessions, pending logins, IMAP and submission) and
+   * keeps the caller's; returns how many ended. Credentials stay valid: a mail client with a live
+   * app password may log in again, so deleting that app password is what keeps it out.
+   */
+  public int endOtherSessions(MailboxLease lease) {
+    requireKeyAdmin(lease);
+    return lease.revokeOtherSessions();
   }
 
   /** Creates an app password; the returned secret is shown once and never stored. */
@@ -283,7 +290,7 @@ public final class KeyLifecycle {
 
   // ---- internals ----
 
-  private Set<OpaqueId> replaceAllKeys(MailboxLease lease, CharSequence password)
+  private void replaceAllKeys(MailboxLease lease, CharSequence password)
       throws LifecycleException,
           StorageException,
           CryptoException,
@@ -311,11 +318,9 @@ public final class KeyLifecycle {
       newMaster.close();
       throw e;
     }
-    return coordinator.withKeys(
+    coordinator.withKeys(
         state -> {
           Keyring old = state.keyring;
-          Set<OpaqueId> removed = new HashSet<>();
-          old.slots().forEach(s -> removed.add(s.slotId()));
           int nextKeyVersion =
               old.privateKeys().keySet().stream().mapToInt(Integer::intValue).max().orElse(0) + 1;
           int nextDataVersion =
@@ -343,7 +348,7 @@ public final class KeyLifecycle {
           state.keyring = rotated;
           state.masterKey = newMaster;
           removeStaleSlotFiles(mailboxId, rotated);
-          return removed;
+          return null;
         });
   }
 
