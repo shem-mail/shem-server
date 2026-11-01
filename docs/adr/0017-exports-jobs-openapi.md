@@ -42,6 +42,7 @@ Status: accepted. Encrypted exports are still open (see below).
 - **Idempotency:** `Idempotency-Key` is bound to the mailbox, so the same key returns the same job. At most one rotation runs per mailbox (`409`).
 - **Running:**
   - `KeyLifecycle.rotateKeys` runs on a child lease, on a bounded pool (2 running, 8 queued). The password lives only in the running task.
+  - Every other session of the mailbox ends right after the keyring commit, before the resumable steps. A job interrupted before the commit ends nothing. `HttpExportAndJobsIT` checks both outcomes of the logout race.
   - The keyring commit is atomic. Anything interrupted afterwards (public-key cutover, metadata re-encryption, key retirement) is finished by `KeyLifecycle.resume` at the mailbox's next unlock. Nothing extra is persisted to make rotation resumable.
 - **Status:** the job record holds `running`, `succeeded`, `failed` or `interrupted` with a sanitized detail.
   - If the session ends mid-run, the job reports `interrupted` ("completes at the next login").
@@ -61,6 +62,7 @@ Status: accepted. Encrypted exports are still open (see below).
 - **Covered:** every route, including the admin routes from [ADR 0016](0016-admin-api.md).
 - **`x-shem-principal`:** each operation carries `public`, `mailbox` or `admin` to name who may call it.
 - **Versioning:** `info.version` versions the contract; breaking changes need `/api/v2`.
+  - `1.1.0`: adds `DELETE /api/v1/me/other-sessions`; password change and key rotation now end every other session of the mailbox. Request and response shapes of existing operations are unchanged.
 - **Contract tests (`OpenApiContractIT`):**
   - The served document is the packaged one.
   - Every documented operation is routed; non-public ones answer `401` anonymously.

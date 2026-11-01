@@ -3,7 +3,7 @@
   "info": {
     "title": "Shem server API",
     "version": "1.1.0",
-    "description": "Versioned HTTP contract (ADR 0013-0021). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
+    "description": "Versioned HTTP contract (ADR 0006, 0013-0021). Cookie-authenticated mutations require Origin and X-CSRF-Token; bearer tokens skip CSRF. Errors are RFC 9457 problem documents. x-shem-principal names who may call an operation."
   },
   "paths": {
     "/healthz": {
@@ -432,7 +432,7 @@
     },
     "/api/v1/me/password": {
       "put": {
-        "summary": "Change password (step-up); recovery sessions end afterwards",
+        "summary": "Change password (step-up); every other session ends, and a recovery session ends as well",
         "x-shem-principal": "mailbox",
         "responses": {
           "204": {
@@ -666,6 +666,61 @@
         ],
         "requestBody": {
           "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/other-sessions": {
+      "delete": {
+        "summary": "End every other session of the mailbox: API sessions, pending logins, IMAP and submission (step-up). Credentials stay valid.",
+        "x-shem-principal": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "endedSessions": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "readOnly": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "mailboxCookie": []
+          },
+          {
+            "mailboxBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -1110,7 +1165,7 @@
     },
     "/api/v1/me/key-rotations": {
       "post": {
-        "summary": "Start a key rotation job; always re-proves the password",
+        "summary": "Start a key rotation job; always re-proves the password. Every other session ends once the new keys are committed",
         "x-shem-principal": "mailbox",
         "responses": {
           "202": {

@@ -137,6 +137,22 @@ public final class MailboxCoordinator {
     }
   }
 
+  /**
+   * Revokes every session lease (API, pending login, IMAP, submission) except the session {@code
+   * keep} belongs to; their child leases end with them. Returns how many sessions ended.
+   */
+  int revokeOtherSessions(MailboxLease keep) {
+    MailboxLease own = keep.session();
+    int ended = 0;
+    for (MailboxLease lease : leases()) {
+      if (lease.isSession() && lease != own && lease.isValid()) {
+        lease.revoke();
+        ended++;
+      }
+    }
+    return ended;
+  }
+
   private void shutdown() {
     importLock.lock();
     keyLock.lock();

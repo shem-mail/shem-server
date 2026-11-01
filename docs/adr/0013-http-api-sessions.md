@@ -28,7 +28,8 @@ An API session is an opaque 256-bit random token that maps, in memory only, to a
 
 - The unlocked keyring stays in the existing mailbox coordinator. Key material never leaves the server and is never part of a token.
 - The session map is keyed by a keyed fingerprint of the token (`SymmetricKey.fingerprint`, per-process key), so the map holds no usable token.
-- **Ending a session:** logout, an idle timeout (`http.idleTimeout`, 30 min), an absolute lifetime (`http.absoluteLifetime`, 12 h), lease revocation (slot removal, account block, key rotation) and shutdown all close the lease. When no IMAP, submission or API session remains, the mailbox locks.
+- **Ending a session:** logout, an idle timeout (`http.idleTimeout`, 30 min), an absolute lifetime (`http.absoluteLifetime`, 12 h), lease revocation (slot removal, account block, password change, key rotation, ending other sessions) and shutdown all close the lease. When no IMAP, submission or API session remains, the mailbox locks.
+- **Ending other sessions:** a password change, a key rotation and `DELETE /api/v1/me/other-sessions` end every other session of the mailbox: API sessions, logins waiting for their second factor, IMAP and submission. The requesting session and its own background jobs stay. This includes other web sessions that unlocked the same password slot, which the earlier per-slot revocation missed.
 - A restart ends every session. There are no refresh or "remember me" tokens.
 - Session counts are capped per account and in total.
 
@@ -54,6 +55,7 @@ The following operations need a credential check within the last 5 minutes, othe
 - password change
 - app password creation and deletion
 - recovery code creation
+- ending other sessions (step-up keeps a stolen session that is past the window from locking the owner out)
 
 ### Endpoints in this slice
 
@@ -62,9 +64,10 @@ The following operations need a credential check within the last 5 minutes, othe
 | `POST /api/v1/auth/login`, `/auth/recovery`, `/auth/logout` | Session start (password or recovery code) and end |
 | `GET /api/v1/me` | Own identity, state, capabilities, session expiry |
 | `POST /api/v1/me/enrollment` | Bootstrap sessions only. The session ends and the user logs in with the new password |
-| `PUT /api/v1/me/password` | Change password |
+| `PUT /api/v1/me/password` | Change password; every other session ends |
 | `GET, POST /api/v1/me/app-passwords`, `DELETE /api/v1/me/app-passwords/{id}` | List app passwords (labels only), create one (password shown once), delete one (ends its sessions) |
 | `POST /api/v1/me/recovery-code` | Create a recovery code (shown once) |
+| `DELETE /api/v1/me/other-sessions` | End every other session of the mailbox; returns `endedSessions`. Credentials stay valid |
 | `GET /healthz` | Liveness |
 
 ## Unresolved, recorded rather than weakened
@@ -89,6 +92,7 @@ The following operations need a credential check within the last 5 minutes, othe
   - Step-up gives `403` without a password, `401` with a wrong one, and success with the right one. App password creation works, deletion revokes the app's live lease, and a second deletion gives `404`.
   - Idle expiry and mailbox revocation end the session.
   - The recovery code flow is single use and ends other sessions.
+  - Ending other sessions needs step-up, ends a second web session and an app-password lease, and keeps the caller's session and the unlocked mailbox. A password change ends another web session on the same password slot.
   - Validation cases (`400`, `413`, `415`, `404`, `405`) and the per-account session cap (`429`) behave as specified.
-- `MailboxVerticalSliceTest`: app passwords never open an API session.
+- `MailboxVerticalSliceTest`: app passwords never open an API session. Ending other sessions keeps the caller's session and its child leases and ends other sessions with their children; password change and rotation end other sessions on the same password slot; app-password leases cannot end sessions.
 - Manual: packaged `serve` with `http.bind`, using curl for login, `/me`, logout, and `/me` returning `401` afterwards.

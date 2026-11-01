@@ -338,6 +338,10 @@ final class Api implements HttpHandler {
         require(c, "POST");
         recoveryCode(c);
       }
+      case "/api/v1/me/other-sessions" -> {
+        require(c, "DELETE");
+        endOtherSessions(c);
+      }
       default -> {
         String prefix = "/api/v1/me/app-passwords/";
         String factors = "/api/v1/me/mfa/";
@@ -563,6 +567,24 @@ final class Api implements HttpHandler {
       throw lifecycleFailure(e);
     }
     c.exchange.sendResponseHeaders(204, -1);
+  }
+
+  /**
+   * Ends every other session of the caller's mailbox: API sessions, pending logins, IMAP and
+   * submission. Needs step-up, so a stolen session past the step-up window cannot lock out the
+   * owner. Credentials are untouched; mail clients reconnect with their app passwords.
+   */
+  private void endOtherSessions(Call c) throws ApiException, IOException {
+    SessionStore.Session session = c.session();
+    capability(session, Capability.KEY_ADMINISTRATION);
+    stepUp(c, session, optionalBody(c));
+    int ended;
+    try {
+      ended = lifecycle.endOtherSessions(session.lease);
+    } catch (Exception e) {
+      throw lifecycleFailure(e);
+    }
+    send(c.exchange, 200, json.createObjectNode().put("endedSessions", ended));
   }
 
   private void recoveryCode(Call c) throws ApiException, IOException {
