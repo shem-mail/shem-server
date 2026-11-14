@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.shem</groupId>
+    <groupId>net.shem</groupId>
     <artifactId>shem-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -14,66 +14,66 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-common</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-crypto</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-identity</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-store</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-store</artifactId>
       <version>${project.version}</version>
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-delivery</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-mailbox</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-tls</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-search</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-extract</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-imap</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-smtp</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-policy</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-outbound</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-http</artifactId>
     </dependency>
   </dependencies>
@@ -87,7 +87,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>org.shem.app.Main</mainClass>
+              <mainClass>net.shem.app.Main</mainClass>
               <addClasspath>true</addClasspath>
               <classpathPrefix>lib/</classpathPrefix>
             </manifest>
@@ -119,7 +119,7 @@
             </goals>
             <configuration>
               <includeScope>runtime</includeScope>
-              <excludeGroupIds>org.shem</excludeGroupIds>
+              <excludeGroupIds>net.shem</excludeGroupIds>
               <includes>META-INF/LICENSE*,META-INF/NOTICE*,META-INF/COPYING*,META-INF/*LICENSE*.txt,META-INF/*/LICENSE*,META-INF/*/NOTICE*,LICENSE*,NOTICE*</includes>
               <useSubDirectoryPerArtifact>true</useSubDirectoryPerArtifact>
               <stripVersion>true</stripVersion>
