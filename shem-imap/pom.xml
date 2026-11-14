@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.shem</groupId>
+    <groupId>net.shem</groupId>
     <artifactId>shem-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -13,15 +13,15 @@
   <description>Apache James IMAP protocol over Shem's encrypted mailbox (ADR 0005).</description>
   <dependencies>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-mailbox</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-tls</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-search</artifactId>
     </dependency>
     <dependency>
@@ -50,14 +50,14 @@
       <scope>runtime</scope>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-tls</artifactId>
       <version>${project.version}</version>
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.shem</groupId>
+      <groupId>net.shem</groupId>
       <artifactId>shem-store</artifactId>
       <version>${project.version}</version>
       <type>test-jar</type>

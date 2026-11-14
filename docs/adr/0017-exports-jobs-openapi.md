@@ -58,7 +58,7 @@ Status: accepted. Encrypted exports are still open (see below).
 
 ### OpenAPI contract
 
-- `shem-http/src/main/resources/org/shem/http/openapi.json` (OpenAPI 3.0.3) is served at `GET /api/v1/openapi.json`.
+- `shem-http/src/main/resources/net/shem/http/openapi.json` (OpenAPI 3.0.3) is served at `GET /api/v1/openapi.json`.
 - **Covered:** every route, including the admin routes from [ADR 0016](0016-admin-api.md).
 - **`x-shem-principal`:** each operation carries `public`, `mailbox` or `admin` to name who may call it.
 - **Versioning:** `info.version` versions the contract; breaking changes need `/api/v2`.
